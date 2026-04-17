@@ -563,12 +563,24 @@ impl App {
                         }
                     }
 
-                    // Plain diff row: just select it. No auto-open.
+                    // Plain diff row: select it. Without an active range,
+                    // also open the editor if the clicked line already has
+                    // a comment, so users can click-to-edit directly.
                     let diff_rows = self.click.diff_rows.clone();
                     for (r, line_idx) in &diff_rows {
                         if *r == row {
                             self.line_idx = *line_idx;
                             self.ensure_visible();
+                            if !range_active {
+                                let has_comment = self
+                                    .current_file()
+                                    .and_then(|f| f.lines.get(*line_idx).cloned())
+                                    .map(|l| self.line_has_comment(&l))
+                                    .unwrap_or(false);
+                                if has_comment {
+                                    self.begin_comment();
+                                }
+                            }
                             return;
                         }
                     }
