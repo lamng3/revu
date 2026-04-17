@@ -72,6 +72,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
     let transcribing = app.transcribe_rx.is_some();
+    let recording = app.recorder.is_some();
     let (anchor_file, anchor_line) = app
         .current_file()
         .and_then(|file| {
@@ -87,13 +88,34 @@ fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
     let rect = centered_rect(area, width, height);
     f.render_widget(Clear, rect);
 
-    let title = if transcribing {
-        format!(" comment · {anchor_file}:{anchor_line} · 🎙 transcribing… ")
+    let title = if recording {
+        let secs = app
+            .recording_since
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        let blink = (secs * 2.0) as u32 % 2 == 0;
+        let dot = if blink { "●" } else { "○" };
+        format!(" comment · {anchor_file}:{anchor_line} · {dot} REC {secs:>4.1}s  Ctrl+V to stop ")
+    } else if transcribing {
+        let secs = app
+            .transcribe_started
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let idx = (secs * 10.0) as usize % frames.len();
+        format!(
+            " comment · {anchor_file}:{anchor_line} · {} transcribing… {secs:.1}s ",
+            frames[idx]
+        )
     } else {
         format!(" comment · {anchor_file}:{anchor_line} ")
     };
 
-    let border_color = if transcribing { Color::LightRed } else { COMMENT_DRAFT };
+    let border_color = if recording || transcribing {
+        Color::LightRed
+    } else {
+        COMMENT_DRAFT
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
