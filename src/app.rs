@@ -1,6 +1,12 @@
 use anyhow::Result;
 use chrono::Utc;
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread,
+    time::Instant,
+};
 
 use crate::comments::{self, Comment, CommentStore, Side};
 use crate::diff::{FileDiff, LineKind};
@@ -61,6 +67,9 @@ pub struct App {
     pub snappy: Snappy,
     pub status: String,
     pub recorder: Option<voice::Recorder>,
+    pub recording_since: Option<Instant>,
+    pub transcribe_rx: Option<Receiver<anyhow::Result<String>>>,
+    pub transcribe_started: Option<Instant>,
     pub click: ClickAreas,
     pub diff_viewport_height: u16,
     pub base_ref: Option<String>,
@@ -97,6 +106,9 @@ impl App {
             snappy,
             status: "loaded review".to_string(),
             recorder: None,
+            recording_since: None,
+            transcribe_rx: None,
+            transcribe_started: None,
             click: ClickAreas::default(),
             diff_viewport_height: 10,
             base_ref,
@@ -114,7 +126,9 @@ impl App {
     }
 
     pub fn tick(&mut self) -> bool {
-        self.snappy.tick()
+        let a = self.snappy.tick();
+        let b = self.poll_voice();
+        a || b
     }
 
     pub fn current_file(&self) -> Option<&FileDiff> {
@@ -1015,45 +1029,92 @@ impl App {
     }
 
     fn toggle_voice(&mut self) {
+        // already transcribing — ignore toggle
+        if self.transcribe_rx.is_some() {
+            self.status = "still transcribing…".into();
+            return;
+        }
         if let Some(rec) = self.recorder.take() {
+            self.recording_since = None;
             match rec.stop() {
                 Ok(wav) => {
-                    self.status = "transcribing voice note...".into();
-                    match voice::transcribe(&wav) {
-                        Ok(text) => {
-                            if let Mode::Comment(draft) = &mut self.mode {
-                                if !draft.is_empty() && !draft.ends_with(' ') {
-                                    draft.push(' ');
-                                }
-                                draft.push_str(&text);
-                            } else {
-                                self.begin_comment();
-                                if let Mode::Comment(draft) = &mut self.mode {
-                                    if !draft.is_empty() && !draft.ends_with(' ') {
-                                        draft.push(' ');
-                                    }
-                                    draft.push_str(&text);
-                                }
-                            }
-                            self.status = format!("voice captured  ·  {} chars", text.len());
-                        }
-                        Err(e) => self.status = format!("transcribe failed: {e}"),
-                    }
+                    let (tx, rx) = mpsc::channel();
+                    thread::spawn(move || {
+                        let _ = tx.send(voice::transcribe(&wav));
+                    });
+                    self.transcribe_rx = Some(rx);
+                    self.transcribe_started = Some(Instant::now());
+                    self.status = "⠋ transcribing…".into();
                 }
                 Err(e) => self.status = format!("recording failed: {e}"),
             }
-            self.recorder = None;
         } else {
             let wav = self.repo_root.join(".revu").join("recording.wav");
             let _ = comments::ensure_dir(&self.repo_root);
             match voice::Recorder::start(wav) {
                 Ok(r) => {
                     self.recorder = Some(r);
-                    self.status = "recording... run :v again to stop and transcribe".into();
+                    self.recording_since = Some(Instant::now());
+                    self.status = "🎙  recording 0.0s  ·  :v to stop".into();
                 }
                 Err(e) => self.status = format!("mic error: {e}"),
             }
         }
+    }
+
+    fn poll_voice(&mut self) -> bool {
+        let mut changed = false;
+        // live elapsed timer while recording
+        if let Some(since) = self.recording_since {
+            let secs = since.elapsed().as_secs_f32();
+            self.status = format!("🎙  recording {:.1}s  ·  :v to stop", secs);
+            changed = true;
+        }
+        // spinner + timer while transcribing, and handoff when done
+        if self.transcribe_rx.is_some() {
+            let secs = self
+                .transcribe_started
+                .map(|t| t.elapsed().as_secs_f32())
+                .unwrap_or(0.0);
+            let frames = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+            let idx = (secs * 10.0) as usize % frames.len();
+            self.status = format!("{} transcribing… {:.1}s", frames[idx], secs);
+            changed = true;
+
+            let result = self.transcribe_rx.as_ref().map(|rx| rx.try_recv());
+            match result {
+                Some(Ok(res)) => {
+                    self.transcribe_rx = None;
+                    let elapsed = secs;
+                    match res {
+                        Ok(text) => {
+                            let text = text.trim().to_string();
+                            if !matches!(self.mode, Mode::Comment(_)) {
+                                self.begin_comment();
+                            }
+                            if let Mode::Comment(draft) = &mut self.mode {
+                                if !draft.is_empty() && !draft.ends_with(' ') {
+                                    draft.push(' ');
+                                }
+                                draft.push_str(&text);
+                            }
+                            let preview: String = text.chars().take(60).collect();
+                            let ellipsis = if text.chars().count() > 60 { "…" } else { "" };
+                            self.status = format!("🎙  {:.1}s  “{}{}”", elapsed, preview, ellipsis);
+                        }
+                        Err(e) => self.status = format!("transcribe failed: {e}"),
+                    }
+                    self.transcribe_started = None;
+                }
+                Some(Err(TryRecvError::Disconnected)) => {
+                    self.transcribe_rx = None;
+                    self.transcribe_started = None;
+                    self.status = "transcribe worker exited unexpectedly".into();
+                }
+                _ => {}
+            }
+        }
+        changed
     }
 
     fn publish_all(&mut self) {
