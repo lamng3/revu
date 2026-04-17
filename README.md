@@ -7,6 +7,8 @@
 » Snappy: small PRs, big wins.
 ```
 
+<img width="1885" height="913" alt="image" src="https://github.com/user-attachments/assets/3d166ff1-cc31-498d-9f77-99ae0e6bb602" />
+
 ## What it does
 
 - 📂 Loads your branch's diff against `origin/HEAD` (or any base)
