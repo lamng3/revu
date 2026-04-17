@@ -1,14 +1,14 @@
 # 🦞 revu 
 
 **Review your own code before you ship it.**
-Walk the diff. Mark what matters. Ship the notes to GitHub — all from the terminal.
+
+Walk the diff. Mark what matters. Ship the reviews. From terminal.
 
 ```
 ~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
 » Snappy: small PRs, big wins.
 ```
-
-<img width="1885" height="913" alt="image" src="https://github.com/user-attachments/assets/3d166ff1-cc31-498d-9f77-99ae0e6bb602" />
+<img width="1887" height="917" alt="image" src="https://github.com/user-attachments/assets/fbc20fd5-9707-4f2d-9ea1-e44663f59aba" />
 
 ## What it does
 
@@ -34,20 +34,6 @@ cd /your/repo && revu
 Press `?` for keys. `:q` to quit.
 
 **Needs:** `git`, [`gh`](https://cli.github.com) for publishing, [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp) for voice.
-
-## Keys (the short list)
-
-| | |
-|---|---|
-| `j` / `k` | line down / up |
-| `Tab` / `⇧Tab` | switch file |
-| `n` / `N` | next / prev hunk |
-| `c` | comment on current line |
-| `V` | multi-line selection |
-| `:p` | publish to PR |
-| `:v` | voice mode |
-| `:r` | reload diff |
-| `?` | help |
 
 ## License
 
