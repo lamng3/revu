@@ -681,15 +681,6 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let lines = vec![
-        Line::from(vec![
-            Span::styled("  TL;DR — ", accent_style),
-            Span::styled("press ", text_style),
-            Span::styled("c", key_style),
-            Span::styled(" on a line to comment. ", text_style),
-            Span::styled(":p", key_style),
-            Span::styled(" to publish to GitHub.", text_style),
-        ]),
-        Line::from(""),
         heading("  NAVIGATE"),
         row("j / k", "move by line"),
         row("Tab / ⇧Tab", "next / previous file"),
@@ -704,15 +695,17 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         row("x", "delete draft on this line"),
         row("m", "open saved comments"),
         Line::from(""),
-        heading("  COMMANDS   (type : then…)"),
+        heading("  COMMANDS"),
         row(":p", "publish drafts to your PR"),
         row(":pr", "create a PR if none exists"),
         row(":r", "reload the diff"),
         row(":v", "voice mode (whisper.cpp)"),
         row(":pet", "pet Snappy 🦞"),
         row(":q", "quit"),
+        Line::from(""),
     ];
     let _ = muted_style;
+    let _ = accent_style;
     let width = area.width.min(88);
     let desired_height = (lines.len() as u16) + 1 + 2;
     let height = desired_height.min(area.height.saturating_sub(2)).max(10);
