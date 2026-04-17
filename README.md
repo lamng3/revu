@@ -1,4 +1,4 @@
-# revu 🦞
+# 🦞 revu 
 
 **Review your own code before you ship it.** A keyboard-first TUI for walking through diffs, leaving inline comments, and publishing them straight to GitHub.
 
