@@ -38,21 +38,21 @@ const DEFAULT_AFFIRMATIONS: &[&str] = &[
 ];
 
 const DEFAULT_PET_MESSAGES: &[&str] = &[
-    "*happy claw click* ooh, right on the carapace. thank you.",
-    "my antennae are tingling. that was lovely.",
-    "i snap gently in your honor.",
-    "a good scritch. i shall review twice as hard now.",
-    "oof, that's the spot. under the shell.",
-    "i am a small lobster, but i feel seen.",
-    "softest pincers in the tide pool, reporting for duty.",
-    "you touched the shell. i accept this offering.",
-    "*burble* i remember this kindness. i do not forget.",
-    "warm water, warm heart. snip snip.",
-    "pet received. morale: maximum. claws: wiggly.",
-    "i was holding in a quack. no wait — that's ducks. *clicks claws*",
-    "one more and i'll write you a haiku about tests.",
-    "i am but a humble crustacean. you are very kind.",
-    "mmm. i will remember you when the tide comes in.",
+    "*claw click* thank you.",
+    "antennae tingling!",
+    "i snap in your honor.",
+    "mmm, the carapace spot.",
+    "i feel seen.",
+    "softest pincers, reporting.",
+    "*burble* noted. forever.",
+    "warm tide, warm heart.",
+    "morale: max. claws: wiggly.",
+    "i do not quack. *clicks*",
+    "small lobster, big love.",
+    "pet accepted. thank you.",
+    "you. me. tide pool. later.",
+    "*happy snap*",
+    "one more? ok, one more.",
 ];
 
 pub fn affirmations_path() -> Option<PathBuf> {
