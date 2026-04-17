@@ -692,7 +692,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         heading("  NAVIGATE"),
         row("j / k", "move by line"),
-        row("Shift+↑ ↓", "switch file"),
+        row("Tab / ⇧Tab", "next / previous file"),
         row("n / N", "next / previous hunk"),
         row("} / {", "next / previous commented line"),
         row("g / G", "top / bottom of file"),
