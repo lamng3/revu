@@ -157,6 +157,13 @@ impl App {
     }
 
     pub fn reload_diff(&mut self) {
+        // Refresh origin refs so that a just-merged PR registers as "no
+        // diff" instead of still showing the pre-merge file list. Runs in
+        // the foreground but with a short timeout-ish scope; best-effort.
+        let _ = std::process::Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["fetch", "--quiet", "--prune", "origin"])
+            .output();
         let current_path = self.current_file().map(|f| f.path.clone());
         match git::load_diff(&self.repo_root, self.base_ref.clone()) {
             Ok(ctx) => {
@@ -537,10 +544,35 @@ impl App {
 
             if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
                 if col >= x && col < x + w && row >= y && row < y + h {
-                    for (r, line_idx) in &self.click.diff_rows {
+                    // Click on a rendered comment row → open the editor on
+                    // that comment's anchor line.
+                    let comment_rows = self.click.comment_rows.clone();
+                    for (top, bottom, idx) in &comment_rows {
+                        if row >= *top && row < *bottom {
+                            self.line_idx = *idx;
+                            self.review_range_anchor = None;
+                            self.ensure_visible();
+                            self.begin_comment();
+                            return;
+                        }
+                    }
+                    // Click on a diff row: select it, and if the line already
+                    // has a comment open the editor so the user can edit it.
+                    let diff_rows = self.click.diff_rows.clone();
+                    for (r, line_idx) in &diff_rows {
                         if *r == row {
+                            let already_selected = self.line_idx == *line_idx;
                             self.line_idx = *line_idx;
                             self.ensure_visible();
+                            let has_comment = self
+                                .current_file()
+                                .and_then(|f| f.lines.get(*line_idx).cloned())
+                                .map(|l| self.line_has_comment(&l))
+                                .unwrap_or(false);
+                            if already_selected || has_comment {
+                                self.review_range_anchor = None;
+                                self.begin_comment();
+                            }
                             return;
                         }
                     }
@@ -875,10 +907,32 @@ impl App {
     }
 
     pub fn line_in_selected_range(&self, idx: usize) -> bool {
-        let Some((start, end)) = self.selected_diff_range() else {
+        // Only true when a multi-line range is actively anchored (V pressed
+        // or mouse drag active). Without an anchor the "range" would just be
+        // the current line and we don't want to highlight anything extra.
+        let Some(anchor) = self.review_range_anchor else {
             return false;
         };
+        let (start, end) = (anchor.min(self.line_idx), anchor.max(self.line_idx));
         idx >= start && idx <= end
+    }
+
+    pub fn multiline_active(&self) -> bool {
+        self.review_range_anchor.is_some()
+    }
+
+    /// Returns the displayed line-number range (start, end) on the current
+    /// side for the active multi-line selection, if any.
+    pub fn multiline_range(&self) -> Option<(u32, u32)> {
+        let anchor = self.review_range_anchor?;
+        let file = self.current_file()?;
+        let (a, b) = (anchor.min(self.line_idx), anchor.max(self.line_idx));
+        let line_no = |l: &crate::diff::DiffLine| -> Option<u32> {
+            l.new_lineno.or(l.old_lineno)
+        };
+        let start = line_no(file.lines.get(a)?)?;
+        let end = line_no(file.lines.get(b)?)?;
+        Some((start.min(end), start.max(end)))
     }
 
     pub fn toggle_review_range(&mut self) {

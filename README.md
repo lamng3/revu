@@ -40,7 +40,7 @@ Press `?` for keys. `:q` to quit.
 | | |
 |---|---|
 | `j` / `k` | line down / up |
-| `Shift+↑↓` | switch file |
+| `Tab` / `⇧Tab` | switch file |
 | `n` / `N` | next / prev hunk |
 | `c` | comment on current line |
 | `V` | multi-line selection |
