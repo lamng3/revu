@@ -23,6 +23,8 @@ const DEL_BG: Color = Color::Indexed(52);
 const HUNK_FG: Color = Color::Cyan;
 const HUNK_BG: Color = Color::Black;
 const SEL_BG: Color = Color::DarkGray;
+const RANGE_BG: Color = Color::Indexed(24);
+const RANGE_EDGE: Color = Color::LightYellow;
 const COMMENT_DRAFT: Color = Color::Yellow;
 const COMMENT_PUBLISHED: Color = Color::Green;
 const COMMENT_ORPHAN: Color = Color::Yellow;
@@ -410,7 +412,7 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
     app.diff_viewport_height = diff_h;
 
     let (adds, dels) = app.file_change_counts(app.file_idx);
-    let header = Line::from(vec![
+    let mut header_spans = vec![
         Span::styled(file.path.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         Span::styled(format!("+{adds}"), Style::default().fg(ADD_FG)),
@@ -421,7 +423,17 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
             format!("line {}/{}", app.line_idx.saturating_add(1), file.lines.len().max(1)),
             Style::default().fg(MUTED),
         ),
-    ]);
+    ];
+    if app.multiline_active() {
+        if let Some((start, end)) = app.multiline_range() {
+            header_spans.push(Span::raw("  "));
+            header_spans.push(Span::styled(
+                format!("▌ range {}–{} ({} lines)", start, end, end - start + 1),
+                Style::default().fg(RANGE_EDGE).add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
+    let header = Line::from(header_spans);
     f.render_widget(
         Paragraph::new(header).style(Style::default().bg(PANEL)),
         Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
@@ -490,9 +502,15 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
     let row_bg = if selected {
         SEL_BG
     } else if in_range {
-        Color::Indexed(236)
+        RANGE_BG
     } else {
         bg.unwrap_or(PANEL)
+    };
+    let range_edge = if in_range { '▌' } else { ' ' };
+    let edge_style = if in_range {
+        Style::default().fg(RANGE_EDGE).bg(row_bg).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED).bg(row_bg)
     };
     let number_style = if selected {
         Style::default().fg(TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
@@ -506,6 +524,7 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
     };
 
     let spans = vec![
+        Span::styled(format!("{range_edge}"), edge_style),
         Span::styled(format!(" {old_n} {new_n} "), number_style),
         Span::styled(
             format!(" {} ", app.comment_marker_for_line(line).unwrap_or(' ')),
