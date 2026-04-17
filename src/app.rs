@@ -544,35 +544,31 @@ impl App {
 
             if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
                 if col >= x && col < x + w && row >= y && row < y + h {
-                    // Click on a rendered comment row → open the editor on
-                    // that comment's anchor line.
-                    let comment_rows = self.click.comment_rows.clone();
-                    for (top, bottom, idx) in &comment_rows {
-                        if row >= *top && row < *bottom {
-                            self.line_idx = *idx;
-                            self.review_range_anchor = None;
-                            self.ensure_visible();
-                            self.begin_comment();
-                            return;
+                    // While a multi-line range is active (V or active drag),
+                    // clicks just move the cursor — never auto-open the
+                    // editor. Press `c` to comment the selected range.
+                    let range_active = self.review_range_anchor.is_some();
+
+                    // Click on a rendered comment bubble → open that
+                    // comment's editor (only when no range is active).
+                    if !range_active {
+                        let comment_rows = self.click.comment_rows.clone();
+                        for (top, bottom, idx) in &comment_rows {
+                            if row >= *top && row < *bottom {
+                                self.line_idx = *idx;
+                                self.ensure_visible();
+                                self.begin_comment();
+                                return;
+                            }
                         }
                     }
-                    // Click on a diff row: select it, and if the line already
-                    // has a comment open the editor so the user can edit it.
+
+                    // Plain diff row: just select it. No auto-open.
                     let diff_rows = self.click.diff_rows.clone();
                     for (r, line_idx) in &diff_rows {
                         if *r == row {
-                            let already_selected = self.line_idx == *line_idx;
                             self.line_idx = *line_idx;
                             self.ensure_visible();
-                            let has_comment = self
-                                .current_file()
-                                .and_then(|f| f.lines.get(*line_idx).cloned())
-                                .map(|l| self.line_has_comment(&l))
-                                .unwrap_or(false);
-                            if already_selected || has_comment {
-                                self.review_range_anchor = None;
-                                self.begin_comment();
-                            }
                             return;
                         }
                     }
