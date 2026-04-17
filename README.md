@@ -1,7 +1,7 @@
 # 🦞 revu 
 
 **Review your own code before you ship it.**
-Walk the diff. Mark what matters. Ship the notes to GitHub — all from the terminal.
+Walk the diff. Mark what matters. Ship the notes to GitHub. All from the terminal.
 
 ```
 ~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
@@ -33,20 +33,6 @@ cd /your/repo && revu
 Press `?` for keys. `:q` to quit.
 
 **Needs:** `git`, [`gh`](https://cli.github.com) for publishing, [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp) for voice.
-
-## Keys (the short list)
-
-| | |
-|---|---|
-| `j` / `k` | line down / up |
-| `Shift+↑↓` | switch file |
-| `n` / `N` | next / prev hunk |
-| `c` | comment on current line |
-| `V` | multi-line selection |
-| `:p` | publish to PR |
-| `:v` | voice mode |
-| `:r` | reload diff |
-| `?` | help |
 
 ## License
 
