@@ -70,6 +70,7 @@ pub struct App {
     pub recording_since: Option<Instant>,
     pub transcribe_rx: Option<Receiver<anyhow::Result<String>>>,
     pub transcribe_started: Option<Instant>,
+    pub comment_cursor: usize,
     pub click: ClickAreas,
     pub diff_viewport_height: u16,
     pub base_ref: Option<String>,
@@ -109,6 +110,7 @@ impl App {
             recording_since: None,
             transcribe_rx: None,
             transcribe_started: None,
+            comment_cursor: 0,
             click: ClickAreas::default(),
             diff_viewport_height: 10,
             base_ref,
@@ -628,6 +630,23 @@ impl App {
         }
     }
 
+    pub fn seek_to_commentable_line(&mut self) {
+        let Some(file) = self.current_file() else { return };
+        let start = self.line_idx.min(file.lines.len().saturating_sub(1));
+        let len = file.lines.len();
+        for offset in 0..len {
+            for &idx in &[start.saturating_add(offset).min(len - 1), start.saturating_sub(offset)] {
+                if let Some(line) = file.lines.get(idx) {
+                    if Self::comment_target_for_line(line).is_some() {
+                        self.line_idx = idx;
+                        self.review_range_anchor = None;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn begin_comment(&mut self) {
         self.overlay = Overlay::None;
         let Some((start_idx, end_idx)) = self.selected_diff_range() else {
@@ -651,6 +670,7 @@ impl App {
             })
             .map(|c| c.body.clone())
             .unwrap_or_default();
+        self.comment_cursor = existing.chars().count();
         self.mode = Mode::Comment(existing);
         self.status = if let Some(start_line) = start_line {
             format!("drafting review comment on {file}:{start_line}-{end_line}")
@@ -1028,7 +1048,7 @@ impl App {
         }
     }
 
-    fn toggle_voice(&mut self) {
+    pub fn toggle_voice(&mut self) {
         // already transcribing — ignore toggle
         if self.transcribe_rx.is_some() {
             self.status = "still transcribing…".into();
@@ -1092,15 +1112,32 @@ impl App {
                             if !matches!(self.mode, Mode::Comment(_)) {
                                 self.begin_comment();
                             }
+                            if !matches!(self.mode, Mode::Comment(_)) {
+                                self.seek_to_commentable_line();
+                                self.begin_comment();
+                            }
+                            if !matches!(self.mode, Mode::Comment(_)) {
+                                // No commentable line available — still open an
+                                // editable scratch draft so the user can review
+                                // and copy the text. Saving will be a no-op.
+                                self.mode = Mode::Comment(String::new());
+                                self.comment_cursor = 0;
+                                self.status =
+                                    "no commentable line — transcript shown in scratch draft".into();
+                            }
                             if let Mode::Comment(draft) = &mut self.mode {
                                 if !draft.is_empty() && !draft.ends_with(' ') {
                                     draft.push(' ');
                                 }
                                 draft.push_str(&text);
+                                self.comment_cursor = draft.chars().count();
                             }
                             let preview: String = text.chars().take(60).collect();
                             let ellipsis = if text.chars().count() > 60 { "…" } else { "" };
-                            self.status = format!("🎙  {:.1}s  “{}{}”", elapsed, preview, ellipsis);
+                            if !self.status.starts_with("no commentable") {
+                                self.status =
+                                    format!("🎙  {:.1}s  “{}{}”", elapsed, preview, ellipsis);
+                            }
                         }
                         Err(e) => self.status = format!("transcribe failed: {e}"),
                     }

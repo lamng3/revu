@@ -173,24 +173,116 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         }
         Mode::Comment(draft) => {
             let mut draft = draft;
+            let len = draft.chars().count();
+            let mut cursor = app.comment_cursor.min(len);
+            let byte_at = |s: &str, char_idx: usize| -> usize {
+                s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
+            };
             match code {
                 KeyCode::Esc => app.mode = Mode::Normal,
                 KeyCode::Enter => {
                     if mods.contains(KeyModifiers::ALT) || mods.contains(KeyModifiers::SHIFT) {
-                        draft.push('\n');
+                        let b = byte_at(&draft, cursor);
+                        draft.insert(b, '\n');
+                        cursor += 1;
+                        app.comment_cursor = cursor;
                         app.mode = Mode::Comment(draft);
                     } else {
                         app.save_current_comment(draft);
                         app.mode = Mode::Normal;
                     }
                 }
+                KeyCode::Left => {
+                    if cursor > 0 { cursor -= 1; }
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::Right => {
+                    if cursor < len { cursor += 1; }
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::Home => {
+                    let b = byte_at(&draft, cursor);
+                    let before = &draft[..b];
+                    cursor -= before.chars().rev().take_while(|&c| c != '\n').count();
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::End => {
+                    let b = byte_at(&draft, cursor);
+                    cursor += draft[b..].chars().take_while(|&c| c != '\n').count();
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::Up => {
+                    let b = byte_at(&draft, cursor);
+                    let before = &draft[..b];
+                    let col = before.chars().rev().take_while(|&c| c != '\n').count();
+                    let line_start = cursor - col;
+                    if line_start == 0 {
+                        cursor = 0;
+                    } else {
+                        let prev_end = line_start - 1;
+                        let b_prev_end = byte_at(&draft, prev_end);
+                        let prev_line_len = draft[..b_prev_end].chars().rev().take_while(|&c| c != '\n').count();
+                        let prev_line_start = prev_end - prev_line_len;
+                        cursor = prev_line_start + col.min(prev_line_len);
+                    }
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::Down => {
+                    let b = byte_at(&draft, cursor);
+                    let before = &draft[..b];
+                    let col = before.chars().rev().take_while(|&c| c != '\n').count();
+                    let rest_after_line: usize = draft[b..].chars().take_while(|&c| c != '\n').count();
+                    let line_end = cursor + rest_after_line;
+                    if line_end >= len {
+                        cursor = len;
+                    } else {
+                        let next_start = line_end + 1;
+                        let b_next = byte_at(&draft, next_start);
+                        let next_line_len = draft[b_next..].chars().take_while(|&c| c != '\n').count();
+                        cursor = next_start + col.min(next_line_len);
+                    }
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
                 KeyCode::Backspace => {
-                    draft.pop();
+                    if cursor > 0 {
+                        let b = byte_at(&draft, cursor - 1);
+                        draft.remove(b);
+                        cursor -= 1;
+                    }
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
+                KeyCode::Delete => {
+                    if cursor < len {
+                        let b = byte_at(&draft, cursor);
+                        draft.remove(b);
+                    }
+                    app.comment_cursor = cursor;
                     app.mode = Mode::Comment(draft);
                 }
                 KeyCode::Char(c) => {
-                    draft.push(c);
-                    app.mode = Mode::Comment(draft);
+                    if c == 'u' && mods.contains(KeyModifiers::CONTROL) {
+                        draft.clear();
+                        cursor = 0;
+                        app.comment_cursor = cursor;
+                        app.mode = Mode::Comment(draft);
+                    } else if (c == 'v' || c == 'V') && mods.contains(KeyModifiers::CONTROL) {
+                        app.comment_cursor = cursor;
+                        app.mode = Mode::Comment(draft);
+                        app.toggle_voice();
+                    } else {
+                        let b = byte_at(&draft, cursor);
+                        draft.insert(b, c);
+                        cursor += 1;
+                        app.comment_cursor = cursor;
+                        app.mode = Mode::Comment(draft);
+                    }
                 }
                 _ => {}
             }

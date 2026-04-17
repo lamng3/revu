@@ -108,22 +108,49 @@ fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(inner);
 
-    // Body: draft text + a trailing caret so user sees where they are.
-    let body_text = if draft.is_empty() && !transcribing {
-        "(start typing, or :v to dictate)".to_string()
-    } else {
-        format!("{draft}▎")
-    };
+    let chars = draft.chars().count();
+    let words = draft.split_whitespace().count();
+    let cursor = app.comment_cursor.min(chars);
+
     let body_style = if draft.is_empty() && !transcribing {
         Style::default().fg(MUTED).bg(PANEL)
     } else {
         Style::default().fg(TEXT).bg(PANEL)
     };
-    let words = draft.split_whitespace().count();
-    let chars = draft.chars().count();
+
+    let body_paragraph: Paragraph = if draft.is_empty() && !transcribing {
+        Paragraph::new("(start typing, or :v to dictate)".to_string())
+    } else {
+        let split_byte = draft
+            .char_indices()
+            .nth(cursor)
+            .map(|(b, _)| b)
+            .unwrap_or(draft.len());
+        let before = &draft[..split_byte];
+        let after = &draft[split_byte..];
+        let caret_style = Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD);
+        let text_style = Style::default().fg(TEXT);
+        let mut lines: Vec<Line> = Vec::new();
+        let mut current: Vec<Span> = Vec::new();
+        for (i, segment) in before.split('\n').enumerate() {
+            if i > 0 {
+                lines.push(Line::from(std::mem::take(&mut current)));
+            }
+            current.push(Span::styled(segment.to_string(), text_style));
+        }
+        current.push(Span::styled("▎".to_string(), caret_style));
+        for (i, segment) in after.split('\n').enumerate() {
+            if i > 0 {
+                lines.push(Line::from(std::mem::take(&mut current)));
+            }
+            current.push(Span::styled(segment.to_string(), text_style));
+        }
+        lines.push(Line::from(current));
+        Paragraph::new(lines)
+    };
 
     f.render_widget(
-        Paragraph::new(body_text)
+        body_paragraph
             .wrap(Wrap { trim: false })
             .style(body_style),
         parts[0],
@@ -132,15 +159,17 @@ fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
     let key = Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD);
     let muted = Style::default().fg(MUTED);
     let footer = Line::from(vec![
+        Span::styled("← → ↑ ↓", key),
+        Span::styled(" move   ", muted),
         Span::styled("Enter", key),
         Span::styled(" save   ", muted),
         Span::styled("⇧Enter", key),
         Span::styled(" newline   ", muted),
-        Span::styled(":v", key),
-        Span::styled(" dictate   ", muted),
+        Span::styled("Ctrl+V", key),
+        Span::styled(" dictate more   ", muted),
         Span::styled("Esc", key),
         Span::styled(" cancel   ", muted),
-        Span::styled(format!("  {chars} chars · {words} words"), muted),
+        Span::styled(format!("  {chars}c · {words}w"), muted),
     ]);
     f.render_widget(
         Paragraph::new(footer).style(Style::default().bg(PANEL)),
@@ -776,6 +805,19 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         row("V", "start / clear multi-line range"),
         row("x", "delete draft on this line"),
         row("m", "open saved comments"),
+        Line::from(""),
+        heading("  EDITOR (while commenting)"),
+        row("type", "insert text at the ▎ caret"),
+        row("← / →", "move caret by one character"),
+        row("↑ / ↓", "move caret between lines"),
+        row("Home / End", "jump to line start / end"),
+        row("Backspace", "delete before caret"),
+        row("Delete", "delete at caret"),
+        row("Ctrl+U", "clear the whole draft"),
+        row("Ctrl+V", "dictate more — appends voice to the draft"),
+        row("Enter", "save draft"),
+        row("⇧Enter", "newline at caret"),
+        row("Esc", "cancel without saving"),
         Line::from(""),
         heading("  COMMANDS"),
         row(":p", "publish drafts to your PR"),
