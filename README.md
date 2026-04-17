@@ -7,8 +7,7 @@ Walk the diff. Mark what matters. Ship the notes to GitHub — all from the term
 ~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
 » Snappy: small PRs, big wins.
 ```
-
-<img width="1885" height="913" alt="image" src="https://github.com/user-attachments/assets/3d166ff1-cc31-498d-9f77-99ae0e6bb602" />
+<img width="1887" height="917" alt="image" src="https://github.com/user-attachments/assets/fbc20fd5-9707-4f2d-9ea1-e44663f59aba" />
 
 ## What it does
 
