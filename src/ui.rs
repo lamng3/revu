@@ -69,7 +69,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(area);
 
     let info_block = Block::default()
