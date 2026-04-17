@@ -1,7 +1,7 @@
 # 🦞 revu 
 
 **Review your own code before you ship it.**
-Walk the diff. Mark what matters. Ship the notes to GitHub. All from the terminal.
+Walk the diff. Mark what matters. Ship the reviews. From terminal.
 
 ```
 ~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
