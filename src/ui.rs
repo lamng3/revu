@@ -23,8 +23,9 @@ const DEL_BG: Color = Color::Indexed(52);
 const HUNK_FG: Color = Color::Cyan;
 const HUNK_BG: Color = Color::Black;
 const SEL_BG: Color = Color::DarkGray;
-const RANGE_BG: Color = Color::Indexed(24);
-const RANGE_EDGE: Color = Color::LightYellow;
+const RANGE_BG: Color = Color::Indexed(18);      // deep indigo — stands out on black
+const RANGE_EDGE: Color = Color::LightYellow;    // bright ▌ along the left edge
+const RANGE_FG: Color = Color::LightCyan;        // line-number + text accent inside the range
 const COMMENT_DRAFT: Color = Color::Yellow;
 const COMMENT_PUBLISHED: Color = Color::Green;
 const COMMENT_ORPHAN: Color = Color::Yellow;
@@ -462,13 +463,17 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
         row_offset += 1;
         if let Some(body) = app.comment_body_for_line(line) {
             if row_offset < diff_h {
+                let bubble_y = inner.y + 1 + row_offset;
                 draw_comment_row(
                     f,
-                    Rect { x: inner.x, y: inner.y + 1 + row_offset, width: inner.width, height: 1 },
+                    Rect { x: inner.x, y: bubble_y, width: inner.width, height: 1 },
                     body,
                     app.comment_marker_for_line(line),
                     idx == app.line_idx,
                 );
+                // Register click target for the inline bubble so clicking it
+                // opens the editor on the anchor diff line above.
+                app.click.comment_rows.push((bubble_y, bubble_y + 1, idx));
                 row_offset += 1;
             }
         }
@@ -506,7 +511,7 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
     } else {
         bg.unwrap_or(PANEL)
     };
-    let range_edge = if in_range { '▌' } else { ' ' };
+    let range_edge = if in_range { '█' } else { ' ' };
     let edge_style = if in_range {
         Style::default().fg(RANGE_EDGE).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
@@ -514,10 +519,14 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
     };
     let number_style = if selected {
         Style::default().fg(TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
+    } else if in_range {
+        Style::default().fg(RANGE_FG).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(MUTED).bg(row_bg)
     };
     let text_style = if selected {
+        Style::default().fg(fg).bg(row_bg).add_modifier(Modifier::BOLD)
+    } else if in_range {
         Style::default().fg(fg).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(fg).bg(row_bg)
@@ -767,6 +776,9 @@ fn draw_files_overlay(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn draw_comments_overlay(f: &mut Frame, area: Rect, app: &mut App) {
+    // Drop any inline bubble click targets — this overlay fully occludes the
+    // diff, and its own rows will be registered below.
+    app.click.comment_rows.clear();
     let width = area.width.min(92);
     let height = area.height.min(24);
     let rect = centered_rect(area, width, height);
@@ -797,10 +809,25 @@ fn draw_comments_overlay(f: &mut Frame, area: Rect, app: &mut App) {
         };
         let side = match comment.side { Side::Left => "LEFT", Side::Right => "RIGHT" };
         let preview: String = comment.body.chars().take(70).collect();
+        let lines_span = match comment.start_line {
+            Some(start) if start != comment.line => {
+                format!("L{start}–L{} ({} lines)", comment.line, comment.line.saturating_sub(start) + 1)
+            }
+            _ => format!("L{}", comment.line),
+        };
+        let state = if comment.orphaned {
+            " · orphaned"
+        } else if comment.published {
+            " · published"
+        } else {
+            " · draft"
+        };
         lines.push(Line::from(vec![
             Span::styled(if selected { "> " } else { "  " }, pointer_style),
             Span::styled("* ", icon_style),
-            Span::styled(format!("{}:{} {}", comment.file, comment.line, side), Style::default().fg(TEXT)),
+            Span::styled(comment.file.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {lines_span}  {side}"), Style::default().fg(TEXT)),
+            Span::styled(state.to_string(), Style::default().fg(MUTED)),
         ]));
         lines.push(Line::from(vec![
             Span::raw("    "),
