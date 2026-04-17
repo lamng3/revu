@@ -192,6 +192,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
                         app.mode = Mode::Normal;
                     }
                 }
+                KeyCode::Char('j') if mods.contains(KeyModifiers::CONTROL) => {
+                    let b = byte_at(&draft, cursor);
+                    draft.insert(b, '\n');
+                    cursor += 1;
+                    app.comment_cursor = cursor;
+                    app.mode = Mode::Comment(draft);
+                }
                 KeyCode::Left => {
                     if cursor > 0 { cursor -= 1; }
                     app.comment_cursor = cursor;

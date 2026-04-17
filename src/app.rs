@@ -656,6 +656,9 @@ impl App {
             self.status = "selected range is not commentable".into();
             return;
         };
+        // Prefer an exact-range match (same start/end). Fall back to ANY
+        // unpublished comment on this file whose range covers the current
+        // anchor line so `c` reliably reopens a draft for editing.
         let existing = self
             .store
             .comments
@@ -667,6 +670,13 @@ impl App {
                     && c.line == end_line
                     && c.side == end_side
                     && !c.published
+            })
+            .or_else(|| {
+                self.store.comments.iter().find(|c| {
+                    c.file == file
+                        && !c.published
+                        && Self::comment_contains_line(c, end_side, end_line)
+                })
             })
             .map(|c| c.body.clone())
             .unwrap_or_default();
@@ -699,6 +709,13 @@ impl App {
                     && c.line == end_line
                     && c.side == end_side
                     && !c.published
+            })
+            .or_else(|| {
+                self.store.comments.iter().position(|c| {
+                    c.file == file
+                        && !c.published
+                        && Self::comment_contains_line(c, end_side, end_line)
+                })
             });
 
         if body.is_empty() {
