@@ -821,6 +821,35 @@ impl App {
         self.comment_marker_for_line(line).is_some()
     }
 
+    /// Gutter glyph for a tree-style multi-line comment span. Returns `●`
+    /// for single-line comments, `┌`/`│`/`└` for the start/middle/end of a
+    /// multi-line range. Caller colors it with `comment_marker_for_line`
+    /// so state (draft/published/orphaned) is still conveyed.
+    pub fn comment_tree_glyph_for_line(&self, line: &crate::diff::DiffLine) -> Option<char> {
+        let file = self.current_file()?;
+        let covering = self
+            .store
+            .comments
+            .iter()
+            .find(|c| c.file == file.path && Self::comment_covers_line(c, line))?;
+        let start = covering.start_line.unwrap_or(covering.line);
+        let end = covering.line;
+        if start == end {
+            return Some('●');
+        }
+        let current = match covering.side {
+            Side::Right => line.new_lineno?,
+            Side::Left => line.old_lineno?,
+        };
+        if current == start {
+            Some('┌')
+        } else if current == end {
+            Some('└')
+        } else {
+            Some('│')
+        }
+    }
+
     pub fn comment_marker_for_line(&self, line: &crate::diff::DiffLine) -> Option<char> {
         let Some(file) = self.current_file() else {
             return None;
