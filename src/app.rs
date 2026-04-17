@@ -1087,7 +1087,12 @@ impl App {
         // live elapsed timer while recording
         if let Some(since) = self.recording_since {
             let secs = since.elapsed().as_secs_f32();
-            self.status = format!("🎙  recording {:.1}s  ·  :v to stop", secs);
+            let stop_hint = if matches!(self.mode, Mode::Comment(_)) {
+                "Ctrl+V to stop"
+            } else {
+                ":v to stop"
+            };
+            self.status = format!("🎙  recording {:.1}s  ·  {}", secs, stop_hint);
             changed = true;
         }
         // spinner + timer while transcribing, and handoff when done
