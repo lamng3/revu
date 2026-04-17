@@ -667,29 +667,52 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     let key_style = Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(TEXT);
     let muted_style = Style::default().fg(MUTED);
+    let heading_style = Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD);
+    let accent_style = Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD);
+
+    let row = |key: &str, desc: &str| -> Line {
+        Line::from(vec![
+            Span::styled(format!("  {:<14}", key), key_style),
+            Span::styled(desc.to_string(), text_style),
+        ])
+    };
+    let heading = |label: &str| -> Line {
+        Line::from(Span::styled(label.to_string(), heading_style))
+    };
+
     let lines = vec![
-        Line::from(Span::styled("Navigation", key_style)),
-        Line::from(vec![Span::styled("  j / k or arrows", key_style), Span::styled("  move through the diff", text_style)]),
-        Line::from(vec![Span::styled("  Shift+Up / Shift+Down", key_style), Span::styled("  switch files", text_style)]),
-        Line::from(vec![Span::styled("  Alt+Up / Alt+Down, Tab / Shift+Tab, H / L", key_style), Span::styled("  alternate file navigation", text_style)]),
-        Line::from(vec![Span::styled("  n / N or ] / [", key_style), Span::styled("  next / previous hunk", text_style)]),
-        Line::from(vec![Span::styled("  } / {", key_style), Span::styled("  next / previous commented line", text_style)]),
-        Line::from(vec![Span::styled("  g / G", key_style), Span::styled("  top / bottom of file", text_style)]),
+        Line::from(vec![
+            Span::styled("  TL;DR — ", accent_style),
+            Span::styled("press ", text_style),
+            Span::styled("c", key_style),
+            Span::styled(" on a line to comment. ", text_style),
+            Span::styled(":p", key_style),
+            Span::styled(" to publish to GitHub.", text_style),
+        ]),
         Line::from(""),
-        Line::from(Span::styled("Review Comments", key_style)),
-        Line::from(vec![Span::styled("  V", key_style), Span::styled("  start or clear a multi-line review range", text_style)]),
-        Line::from(vec![Span::styled("  c or :c", key_style), Span::styled("  add or edit a PR review comment", text_style)]),
-        Line::from(vec![Span::styled("  x or :d", key_style), Span::styled("  delete the draft comment on the current line/range", text_style)]),
-        Line::from(vec![Span::styled("  m", key_style), Span::styled("  open saved comments", text_style)]),
+        heading("  NAVIGATE"),
+        row("j / k", "move by line"),
+        row("Shift+↑ ↓", "switch file"),
+        row("n / N", "next / previous hunk"),
+        row("} / {", "next / previous commented line"),
+        row("g / G", "top / bottom of file"),
+        row("J", "jump to latest diff"),
         Line::from(""),
-        Line::from(Span::styled("Commands", key_style)),
-        Line::from(vec![Span::styled("  :v", key_style), Span::styled("  voice", text_style)]),
-        Line::from(vec![Span::styled("  :r", key_style), Span::styled("  reload current diff", text_style)]),
-        Line::from(vec![Span::styled("  :pr", key_style), Span::styled("  create a PR if needed", text_style)]),
-        Line::from(vec![Span::styled("  :publish", key_style), Span::styled("  publish saved drafts", text_style)]),
-        Line::from(vec![Span::styled("  :pet", key_style), Span::styled("  give Snappy a little morale boost", text_style)]),
-        Line::from(vec![Span::styled("  :q", key_style), Span::styled("  quit", text_style)]),
+        heading("  COMMENT"),
+        row("c", "add or edit comment on this line"),
+        row("V", "start / clear multi-line range"),
+        row("x", "delete draft on this line"),
+        row("m", "open saved comments"),
+        Line::from(""),
+        heading("  COMMANDS   (type : then…)"),
+        row(":p", "publish drafts to your PR"),
+        row(":pr", "create a PR if none exists"),
+        row(":r", "reload the diff"),
+        row(":v", "voice mode (whisper.cpp)"),
+        row(":pet", "pet Snappy 🦞"),
+        row(":q", "quit"),
     ];
+    let _ = muted_style;
     let width = area.width.min(88);
     let desired_height = (lines.len() as u16) + 1 + 2;
     let height = desired_height.min(area.height.saturating_sub(2)).max(10);
@@ -721,17 +744,16 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         sections[0],
     );
 
+    let muted_style = Style::default().fg(MUTED);
     let footer = Line::from(vec![
-        Span::styled("Enter", key_style),
+        Span::styled("  Esc / Enter", key_style),
         Span::styled(" close", muted_style),
-        Span::styled("   ", muted_style),
-        Span::styled("Esc", key_style),
-        Span::styled(" cancel", muted_style),
-        Span::styled("   ", muted_style),
+        Span::raw("     "),
         Span::styled("?", key_style),
         Span::styled(" toggle", muted_style),
-        Span::styled("   ", muted_style),
-        Span::styled("Up/Down scroll", muted_style),
+        Span::raw("     "),
+        Span::styled("↑ ↓", key_style),
+        Span::styled(" scroll", muted_style),
     ]);
     f.render_widget(
         Paragraph::new(footer)
