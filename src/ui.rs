@@ -1,0 +1,750 @@
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    Frame,
+};
+use std::collections::BTreeSet;
+
+use crate::app::{App, Mode, Overlay};
+use crate::comments::Side;
+use crate::diff::{DiffLine, LineKind};
+
+const BG: Color = Color::Black;
+const PANEL: Color = Color::Black;
+const BORDER: Color = Color::DarkGray;
+const TEXT: Color = Color::White;
+const MUTED: Color = Color::Gray;
+const ADD_FG: Color = Color::Green;
+const ADD_BG: Color = Color::Indexed(22);
+const DEL_FG: Color = Color::Red;
+const DEL_BG: Color = Color::Indexed(52);
+const HUNK_FG: Color = Color::Cyan;
+const HUNK_BG: Color = Color::Black;
+const SEL_BG: Color = Color::DarkGray;
+const COMMENT_DRAFT: Color = Color::Yellow;
+const COMMENT_PUBLISHED: Color = Color::Green;
+const COMMENT_ORPHAN: Color = Color::Yellow;
+const SNAPPY_WATER: Color = Color::Rgb(82, 175, 162);
+const SNAPPY_DEEP: Color = Color::Rgb(52, 124, 116);
+const SNAPPY_BUBBLE: Color = Color::Rgb(196, 232, 222);
+const SNAPPY_LOBSTER: Color = Color::Rgb(232, 88, 72);
+const SNAPPY_LOBSTER_HI: Color = Color::Rgb(255, 150, 120);
+
+pub fn draw(f: &mut Frame, app: &mut App) {
+    let size = f.area();
+    f.render_widget(Block::default().style(Style::default().bg(BG)), size);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(4), Constraint::Min(8), Constraint::Length(3)])
+        .split(size);
+
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(40), Constraint::Min(40)])
+        .split(layout[1]);
+
+    app.click.file_rows.clear();
+    app.click.folder_rows.clear();
+    app.click.comment_rows.clear();
+    app.click.diff_rows.clear();
+    app.click.file_panel_bounds = None;
+    app.click.diff_panel_bounds = None;
+
+    draw_banner(f, layout[0], app);
+    draw_files_panel(f, body[0], app);
+    draw_diff(f, body[1], app);
+    draw_footer(f, layout[2], app);
+
+    match app.overlay {
+        Overlay::Help => draw_help_overlay(f, size, app),
+        Overlay::Files => draw_files_overlay(f, size, app),
+        Overlay::Comments => draw_comments_overlay(f, size, app),
+        Overlay::None => {}
+    }
+}
+
+fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(40), Constraint::Length(44)])
+        .split(area);
+
+    let info_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(BG))
+        .title(Span::styled(" revu ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let snappy_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed))
+        .title(Span::styled(" 🦞 snappy ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)));
+
+    let info_inner = info_block.inner(sections[0]);
+    let snappy_inner = snappy_block.inner(sections[1]);
+    f.render_widget(info_block, sections[0]);
+    f.render_widget(snappy_block, sections[1]);
+
+    let voice = if app.recorder.is_some() { "REC" } else { "idle" };
+    let snappy_message = app
+        .snappy
+        .current_message
+        .clone()
+        .unwrap_or_else(|| "Snappy: you got this.".to_string());
+    let snappy_message = snappy_message
+        .strip_prefix("Snappy: ")
+        .unwrap_or(&snappy_message)
+        .to_string();
+    let info = Line::from(vec![
+        Span::styled("repo ", Style::default().fg(MUTED)),
+        Span::styled(app.repo_name(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled("branch ", Style::default().fg(MUTED)),
+        Span::styled(app.branch_name.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled(format!("drafts {}", app.unpublished_count()), Style::default().fg(COMMENT_DRAFT)),
+        Span::raw("  "),
+        Span::styled(format!("voice {}", voice), Style::default().fg(MUTED)),
+    ]);
+    let current = Line::from(vec![
+        Span::styled("base ", Style::default().fg(MUTED)),
+        Span::styled(app.base_label(), Style::default().fg(TEXT)),
+        Span::raw("   "),
+        Span::styled(":help", Style::default().fg(MUTED)),
+    ]);
+    let _ = SNAPPY_BUBBLE;
+    let _ = SNAPPY_DEEP;
+    let hint = Line::from("");
+    let stage_width = snappy_inner.width as usize;
+    let frame = app.snappy.duck_frame;
+
+    // Claws + eyes animate from frame (cycle ~2.2s).
+    let claw_phase = frame % 16;
+    let (l_claw, r_claw) = match claw_phase {
+        0..=11 => ("<(", ")>"),
+        12..=13 => ("<<", ">>"),
+        14 => ("«(", ")»"),
+        _ => ("<(", ")>"),
+    };
+    let snapping = claw_phase == 14;
+    let eyes = if frame % 90 < 2 { "°‿°" } else { "°º°" };
+
+    // Water flowing past stationary lobster.
+    let wave_seed: Vec<char> = "~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈".chars().collect();
+    let ws = wave_seed.len().max(1);
+    let lobster_body: String = format!("{l_claw}{eyes}{r_claw}");
+    let lobster_w = lobster_body.chars().count();
+    let center = stage_width.saturating_sub(lobster_w) / 2;
+    let shift = frame % ws;
+
+    let left_water: String = (0..center)
+        .map(|i| wave_seed[(i + shift) % ws])
+        .collect();
+    let right_start = center + lobster_w;
+    let right_w = stage_width.saturating_sub(right_start);
+    let right_water: String = (0..right_w)
+        .map(|i| wave_seed[(i + right_start + shift) % ws])
+        .collect();
+
+    let water_style = Style::default().fg(Color::Cyan);
+    let lobster_color = if snapping { Color::LightRed } else { Color::Red };
+    let lobster_style = Style::default().fg(lobster_color).add_modifier(Modifier::BOLD);
+
+    let scene = Line::from(vec![
+        Span::styled(left_water, water_style),
+        Span::styled(lobster_body, lobster_style),
+        Span::styled(right_water, water_style),
+    ]);
+
+    let message_line = Line::from(vec![
+        Span::styled("» Snappy: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::styled(snappy_message, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+    ]);
+
+    f.render_widget(
+        Paragraph::new(vec![info, current])
+            .style(Style::default().bg(BG)),
+        info_inner,
+    );
+    f.render_widget(
+        Paragraph::new(vec![scene, message_line]),
+        snappy_inner,
+    );
+    let _ = hint;
+    let _ = SNAPPY_WATER;
+    let _ = SNAPPY_LOBSTER;
+    let _ = SNAPPY_LOBSTER_HI;
+}
+
+fn draw_files_panel(f: &mut Frame, area: Rect, app: &mut App) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(BG))
+        .title(Span::styled(" files ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    app.click.file_panel_bounds = Some((inner.x, inner.y, inner.width, inner.height));
+
+    if app.files.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled("no diff files", Style::default().fg(MUTED))))
+                .style(Style::default().bg(BG)),
+            inner,
+        );
+        return;
+    }
+
+    let rows = build_file_tree_rows(app);
+    let visible = inner.height as usize;
+    app.file_panel_viewport_height = visible;
+    if app.follow_selected_file {
+        let selected_row = rows
+            .iter()
+            .position(|row| row.file_idx == Some(app.file_idx))
+            .unwrap_or(0);
+        app.ensure_file_panel_visible_for_row(selected_row, rows.len());
+        app.follow_selected_file = false;
+    } else {
+        let max_scroll = rows.len().saturating_sub(visible);
+        app.file_panel_scroll = app.file_panel_scroll.min(max_scroll);
+    }
+    let start = app.file_panel_scroll.min(rows.len().saturating_sub(1));
+    let end = (start + visible).min(rows.len());
+    let mut lines = Vec::new();
+    for (row_idx, row) in rows[start..end].iter().enumerate() {
+        let style = if row.file_idx == Some(app.file_idx) {
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD).bg(SEL_BG)
+        } else if row.is_folder {
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED)
+        };
+        let mut spans = vec![
+            Span::styled(" ".repeat(row.indent * 2), Style::default()),
+            Span::styled(row.glyph.to_string(), style),
+            Span::raw(" "),
+            Span::styled(row.label.clone(), style),
+        ];
+        if let Some((adds, dels)) = row.counts {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(format!("+{adds}"), Style::default().fg(ADD_FG)));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(format!("-{dels}"), Style::default().fg(DEL_FG)));
+        }
+        lines.push(Line::from(spans));
+        let screen_row = inner.y + row_idx as u16;
+        if let Some(folder_key) = &row.folder_key {
+            app.click.folder_rows.push((screen_row, screen_row + 1, folder_key.clone()));
+        } else if let Some(file_idx) = row.file_idx {
+            app.click.file_rows.push((screen_row, screen_row + 1, file_idx));
+        }
+    }
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().bg(BG)),
+        inner,
+    );
+}
+
+fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default().bg(PANEL))
+        .border_style(Style::default().fg(BORDER))
+        .title(Span::styled(" review ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    app.click.diff_panel_bounds = Some((inner.x, inner.y, inner.width, inner.height));
+
+    let Some(file) = app.current_file().cloned() else {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled("no diff to show", Style::default().fg(MUTED))))
+                .style(Style::default().bg(PANEL)),
+            inner,
+        );
+        return;
+    };
+
+    let inline_editor = matches!(app.mode, Mode::Comment(_)) && inner.height > 2;
+    let header_h = 1u16;
+    let editor_h = if inline_editor { 2u16 } else { 0u16 };
+    let diff_h = inner.height.saturating_sub(header_h + editor_h);
+    app.diff_viewport_height = diff_h;
+
+    let (adds, dels) = app.file_change_counts(app.file_idx);
+    let header = Line::from(vec![
+        Span::styled(file.path.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled(format!("+{adds}"), Style::default().fg(ADD_FG)),
+        Span::raw(" "),
+        Span::styled(format!("-{dels}"), Style::default().fg(DEL_FG)),
+        Span::raw("  "),
+        Span::styled(
+            format!("line {}/{}", app.line_idx.saturating_add(1), file.lines.len().max(1)),
+            Style::default().fg(MUTED),
+        ),
+    ]);
+    f.render_widget(
+        Paragraph::new(header).style(Style::default().bg(PANEL)),
+        Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
+    );
+
+    let start = app.scroll;
+    let mut idx = start;
+    let mut row_offset = 0u16;
+    let mut selected_visible = false;
+
+    while idx < file.lines.len() && row_offset < diff_h {
+        let draw_y = inner.y + 1 + row_offset;
+        let line = &file.lines[idx];
+        app.click.diff_rows.push((draw_y, idx));
+        draw_diff_row(
+            f,
+            Rect { x: inner.x, y: draw_y, width: inner.width, height: 1 },
+            app,
+            line,
+            idx,
+            idx == app.line_idx,
+        );
+        if idx == app.line_idx {
+            selected_visible = true;
+        }
+        row_offset += 1;
+        if let Some(body) = app.comment_body_for_line(line) {
+            if row_offset < diff_h {
+                draw_comment_row(
+                    f,
+                    Rect { x: inner.x, y: inner.y + 1 + row_offset, width: inner.width, height: 1 },
+                    body,
+                    app.comment_marker_for_line(line),
+                    idx == app.line_idx,
+                );
+                row_offset += 1;
+            }
+        }
+        idx += 1;
+    }
+
+    if inline_editor && selected_visible {
+        draw_inline_comment_editor(
+            f,
+            Rect {
+                x: inner.x,
+                y: inner.y + inner.height.saturating_sub(2),
+                width: inner.width,
+                height: 2,
+            },
+            app,
+        );
+    }
+}
+
+pub fn file_tree_row_count(app: &App) -> usize {
+    build_file_tree_rows(app).len()
+}
+
+fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usize, selected: bool) {
+    let (fg, bg, marker) = style_for(line);
+    let marker_style = comment_marker_style(app.comment_marker_for_line(line));
+    let old_n = line.old_lineno.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
+    let new_n = line.new_lineno.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
+    let in_range = app.line_in_selected_range(idx);
+    let row_bg = if selected {
+        SEL_BG
+    } else if in_range {
+        Color::Indexed(236)
+    } else {
+        bg.unwrap_or(PANEL)
+    };
+    let number_style = if selected {
+        Style::default().fg(TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED).bg(row_bg)
+    };
+    let text_style = if selected {
+        Style::default().fg(fg).bg(row_bg).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(fg).bg(row_bg)
+    };
+
+    let spans = vec![
+        Span::styled(format!(" {old_n} {new_n} "), number_style),
+        Span::styled(
+            format!(" {} ", app.comment_marker_for_line(line).unwrap_or(' ')),
+            marker_style.bg(row_bg),
+        ),
+        Span::styled(format!(" {marker} "), text_style),
+        Span::styled(line.text.clone(), text_style),
+    ];
+    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(row_bg)), area);
+}
+
+fn draw_comment_row(
+    f: &mut Frame,
+    area: Rect,
+    body: String,
+    marker: Option<char>,
+    selected_line: bool,
+) {
+    let bg = if selected_line { SEL_BG } else { PANEL };
+    let label = match marker {
+        Some('P') => "published",
+        Some('!') => "orphaned",
+        _ => "draft",
+    };
+    let style = match marker {
+        Some('P') => Style::default().fg(COMMENT_PUBLISHED).bg(bg),
+        Some('!') => Style::default().fg(COMMENT_ORPHAN).bg(bg),
+        _ => Style::default().fg(COMMENT_DRAFT).bg(bg),
+    };
+    let preview: String = body.chars().take(area.width.saturating_sub(22) as usize).collect();
+    let line = Line::from(vec![
+        Span::styled("         review ", style.add_modifier(Modifier::BOLD)),
+        Span::styled(format!("[{label}] "), style),
+        Span::styled(preview, Style::default().fg(TEXT).bg(bg)),
+    ]);
+    f.render_widget(Paragraph::new(line).style(Style::default().bg(bg)), area);
+}
+
+fn draw_inline_comment_editor(f: &mut Frame, area: Rect, app: &App) {
+    let draft = match &app.mode {
+        Mode::Comment(draft) => draft.clone(),
+        _ => return,
+    };
+    let preview = draft.replace('\n', " \\ ");
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(PANEL));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let range_hint = if app.review_range_anchor.is_some() {
+        "  V range  c comment  x delete"
+    } else {
+        "  V start range"
+    };
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("comment ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
+            Span::styled("enter save", Style::default().fg(MUTED)),
+            Span::raw("  "),
+            Span::styled("esc cancel", Style::default().fg(MUTED)),
+            Span::raw("  "),
+            Span::styled("shift+enter newline", Style::default().fg(MUTED)),
+            Span::styled(range_hint, Style::default().fg(MUTED)),
+        ]),
+        Line::from(vec![
+            Span::styled("> ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
+            Span::styled(preview, Style::default().fg(TEXT)),
+            Span::styled("▎", Style::default().fg(COMMENT_DRAFT)),
+        ]),
+    ];
+    f.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: true }).style(Style::default().bg(PANEL)),
+        inner,
+    );
+}
+
+fn comment_marker_style(marker: Option<char>) -> Style {
+    match marker {
+        Some('D') => Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD),
+        Some('P') => Style::default().fg(COMMENT_PUBLISHED).add_modifier(Modifier::BOLD),
+        Some('!') => Style::default().fg(COMMENT_ORPHAN).add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(MUTED),
+    }
+}
+
+fn style_for(line: &DiffLine) -> (Color, Option<Color>, &'static str) {
+    match line.kind {
+        LineKind::Add => (ADD_FG, Some(ADD_BG), "+"),
+        LineKind::Del => (DEL_FG, Some(DEL_BG), "-"),
+        LineKind::Context => (TEXT, None, " "),
+        LineKind::HunkHeader => (HUNK_FG, Some(HUNK_BG), "@"),
+    }
+}
+
+fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(BG));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let line = match &app.mode {
+        Mode::Command(buf) => Line::from(vec![
+            Span::styled(":", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(buf.clone(), Style::default().fg(TEXT)),
+            Span::styled("▎", Style::default().fg(TEXT)),
+            Span::raw("  "),
+            Span::styled("enter run", Style::default().fg(MUTED)),
+            Span::raw("  "),
+            Span::styled("esc cancel", Style::default().fg(MUTED)),
+        ]),
+        Mode::Comment(draft) => {
+            let preview: String = draft.replace('\n', " \\ ").chars().take(inner.width.saturating_sub(32) as usize).collect();
+            Line::from(vec![
+                Span::styled("review comment ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
+                Span::styled(preview, Style::default().fg(TEXT)),
+                Span::raw("  "),
+                Span::styled("enter save", Style::default().fg(MUTED)),
+                Span::raw("  "),
+                Span::styled("esc cancel", Style::default().fg(MUTED)),
+            ])
+        }
+        Mode::Normal => Line::from(vec![
+            Span::styled(app.status.clone(), Style::default().fg(TEXT)),
+            Span::raw("  ·  "),
+            Span::styled("press :help for commands", Style::default().fg(MUTED)),
+        ]),
+    };
+    f.render_widget(
+        Paragraph::new(line)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().bg(BG)),
+        inner,
+    );
+}
+
+#[derive(Clone)]
+struct FileTreeRow {
+    indent: usize,
+    glyph: char,
+    label: String,
+    counts: Option<(usize, usize)>,
+    file_idx: Option<usize>,
+    folder_key: Option<String>,
+    is_folder: bool,
+}
+
+fn build_file_tree_rows(app: &App) -> Vec<FileTreeRow> {
+    let mut rows = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (idx, file) in app.files.iter().enumerate() {
+        let parts: Vec<&str> = file.path.split('/').collect();
+        let mut hidden_by_collapsed_parent = false;
+        if parts.len() > 1 {
+            for depth in 0..parts.len() - 1 {
+                let key = parts[..=depth].join("/");
+                if depth > 0 {
+                    let parent = parts[..depth].join("/");
+                    if app.collapsed_folders.contains(&parent) {
+                        hidden_by_collapsed_parent = true;
+                    }
+                }
+                if seen.insert(key.clone()) {
+                    if !hidden_by_collapsed_parent {
+                        let collapsed = app.collapsed_folders.contains(&key);
+                        rows.push(FileTreeRow {
+                            indent: depth,
+                            glyph: if collapsed { '▸' } else { '▾' },
+                            label: parts[depth].to_string(),
+                            counts: None,
+                            file_idx: None,
+                            folder_key: Some(key.clone()),
+                            is_folder: true,
+                        });
+                    }
+                }
+            }
+        }
+        let parent_collapsed = if parts.len() > 1 {
+            (1..parts.len()).any(|depth| app.collapsed_folders.contains(&parts[..depth].join("/")))
+        } else {
+            false
+        };
+        if !parent_collapsed {
+            rows.push(FileTreeRow {
+                indent: parts.len().saturating_sub(1),
+                glyph: if idx == app.file_idx { '›' } else { '•' },
+                label: parts.last().copied().unwrap_or(&file.path).to_string(),
+                counts: Some(app.file_change_counts(idx)),
+                file_idx: Some(idx),
+                folder_key: None,
+                is_folder: false,
+            });
+        }
+    }
+    rows
+}
+
+fn draw_files_overlay(f: &mut Frame, area: Rect, app: &mut App) {
+    let width = area.width.min(84);
+    let height = area.height.min(24);
+    let rect = centered_rect(area, width, height);
+    f.render_widget(Clear, rect);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(PANEL))
+        .title(Span::styled(" files ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let visible = inner.height as usize;
+    let start = app.file_overlay_scroll.min(app.files.len().saturating_sub(1));
+    let end = (start + visible).min(app.files.len());
+    let mut lines = Vec::new();
+    for idx in start..end {
+        let file = &app.files[idx];
+        let (adds, dels) = app.file_change_counts(idx);
+        let selected = idx == app.file_overlay_idx;
+        let style = if selected { Style::default().fg(TEXT).add_modifier(Modifier::BOLD) } else { Style::default().fg(MUTED) };
+        lines.push(Line::from(vec![
+            Span::styled(if selected { "> " } else { "  " }, style),
+            Span::styled(file.path.clone(), style),
+            Span::raw("  "),
+            Span::styled(format!("+{adds}"), Style::default().fg(ADD_FG)),
+            Span::raw(" "),
+            Span::styled(format!("-{dels}"), Style::default().fg(DEL_FG)),
+        ]));
+        let row = inner.y + (idx - start) as u16;
+        app.click.file_rows.push((row, row + 1, idx));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled("no files in the current diff", Style::default().fg(MUTED))));
+    }
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).style(Style::default().bg(PANEL)), inner);
+}
+
+fn draw_comments_overlay(f: &mut Frame, area: Rect, app: &mut App) {
+    let width = area.width.min(92);
+    let height = area.height.min(24);
+    let rect = centered_rect(area, width, height);
+    f.render_widget(Clear, rect);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(PANEL))
+        .title(Span::styled(" comments ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let visible_comments = (inner.height as usize / 2).max(1);
+    let start = app.comment_overlay_scroll.min(app.store.comments.len().saturating_sub(1));
+    let end = (start + visible_comments).min(app.store.comments.len());
+    let mut lines = Vec::new();
+    for idx in start..end {
+        let comment = &app.store.comments[idx];
+        let selected = idx == app.comment_overlay_idx;
+        let pointer_style = if selected { Style::default().fg(TEXT).add_modifier(Modifier::BOLD) } else { Style::default().fg(MUTED) };
+        let icon_style = if comment.orphaned {
+            Style::default().fg(COMMENT_ORPHAN)
+        } else if comment.published {
+            Style::default().fg(COMMENT_PUBLISHED)
+        } else {
+            Style::default().fg(COMMENT_DRAFT)
+        };
+        let side = match comment.side { Side::Left => "LEFT", Side::Right => "RIGHT" };
+        let preview: String = comment.body.chars().take(70).collect();
+        lines.push(Line::from(vec![
+            Span::styled(if selected { "> " } else { "  " }, pointer_style),
+            Span::styled("* ", icon_style),
+            Span::styled(format!("{}:{} {}", comment.file, comment.line, side), Style::default().fg(TEXT)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(preview, Style::default().fg(MUTED)),
+        ]));
+        let row_top = inner.y + ((idx - start) as u16) * 2;
+        app.click.comment_rows.push((row_top, row_top + 2, idx));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled("no saved comments yet. press c on a diff line.", Style::default().fg(MUTED))));
+    }
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).style(Style::default().bg(PANEL)), inner);
+}
+
+fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
+    let key_style = Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(TEXT);
+    let muted_style = Style::default().fg(MUTED);
+    let lines = vec![
+        Line::from(Span::styled("Navigation", key_style)),
+        Line::from(vec![Span::styled("  j / k or arrows", key_style), Span::styled("  move through the diff", text_style)]),
+        Line::from(vec![Span::styled("  Shift+Up / Shift+Down", key_style), Span::styled("  switch files", text_style)]),
+        Line::from(vec![Span::styled("  Alt+Up / Alt+Down, Tab / Shift+Tab, H / L", key_style), Span::styled("  alternate file navigation", text_style)]),
+        Line::from(vec![Span::styled("  n / N or ] / [", key_style), Span::styled("  next / previous hunk", text_style)]),
+        Line::from(vec![Span::styled("  } / {", key_style), Span::styled("  next / previous commented line", text_style)]),
+        Line::from(vec![Span::styled("  g / G", key_style), Span::styled("  top / bottom of file", text_style)]),
+        Line::from(""),
+        Line::from(Span::styled("Review Comments", key_style)),
+        Line::from(vec![Span::styled("  V", key_style), Span::styled("  start or clear a multi-line review range", text_style)]),
+        Line::from(vec![Span::styled("  c or :c", key_style), Span::styled("  add or edit a PR review comment", text_style)]),
+        Line::from(vec![Span::styled("  x or :d", key_style), Span::styled("  delete the draft comment on the current line/range", text_style)]),
+        Line::from(vec![Span::styled("  m", key_style), Span::styled("  open saved comments", text_style)]),
+        Line::from(""),
+        Line::from(Span::styled("Commands", key_style)),
+        Line::from(vec![Span::styled("  :v", key_style), Span::styled("  voice", text_style)]),
+        Line::from(vec![Span::styled("  :r", key_style), Span::styled("  reload current diff", text_style)]),
+        Line::from(vec![Span::styled("  :pr", key_style), Span::styled("  create a PR if needed", text_style)]),
+        Line::from(vec![Span::styled("  :publish", key_style), Span::styled("  publish saved drafts", text_style)]),
+        Line::from(vec![Span::styled("  :pet", key_style), Span::styled("  give Snappy a little morale boost", text_style)]),
+        Line::from(vec![Span::styled("  :q", key_style), Span::styled("  quit", text_style)]),
+    ];
+    let width = area.width.min(88);
+    let desired_height = (lines.len() as u16) + 1 + 2;
+    let height = desired_height.min(area.height.saturating_sub(2)).max(10);
+    let rect = centered_rect(area, width, height);
+    f.render_widget(Clear, rect);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(PANEL))
+        .title(Span::styled(" revu help ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let visible = sections[0].height as usize;
+    let max_scroll = lines.len().saturating_sub(visible);
+    let start = app.help_scroll.min(max_scroll);
+    let end = (start + visible).min(lines.len());
+    let visible_lines: Vec<Line> = lines[start..end].to_vec();
+    f.render_widget(
+        Paragraph::new(visible_lines)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(TEXT).bg(PANEL)),
+        sections[0],
+    );
+
+    let footer = Line::from(vec![
+        Span::styled("Enter", key_style),
+        Span::styled(" close", muted_style),
+        Span::styled("   ", muted_style),
+        Span::styled("Esc", key_style),
+        Span::styled(" cancel", muted_style),
+        Span::styled("   ", muted_style),
+        Span::styled("?", key_style),
+        Span::styled(" toggle", muted_style),
+        Span::styled("   ", muted_style),
+        Span::styled("Up/Down scroll", muted_style),
+    ]);
+    f.render_widget(
+        Paragraph::new(footer)
+            .style(Style::default().fg(TEXT).bg(PANEL)),
+        sections[1],
+    );
+}
+
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    }
+}
