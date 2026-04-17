@@ -64,6 +64,88 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::Comments => draw_comments_overlay(f, size, app),
         Overlay::None => {}
     }
+
+    if let Mode::Comment(draft) = &app.mode {
+        draw_comment_editor(f, size, app, draft);
+    }
+}
+
+fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
+    let transcribing = app.transcribe_rx.is_some();
+    let (anchor_file, anchor_line) = app
+        .current_file()
+        .and_then(|file| {
+            file.lines.get(app.line_idx).map(|l| {
+                let ln = l.new_lineno.or(l.old_lineno).unwrap_or(0);
+                (file.path.clone(), ln)
+            })
+        })
+        .unwrap_or_else(|| ("(no file)".to_string(), 0));
+
+    let width = area.width.saturating_sub(8).min(96).max(40);
+    let height = area.height.saturating_sub(4).min(18).max(8);
+    let rect = centered_rect(area, width, height);
+    f.render_widget(Clear, rect);
+
+    let title = if transcribing {
+        format!(" comment · {anchor_file}:{anchor_line} · 🎙 transcribing… ")
+    } else {
+        format!(" comment · {anchor_file}:{anchor_line} ")
+    };
+
+    let border_color = if transcribing { Color::LightRed } else { COMMENT_DRAFT };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .style(Style::default().bg(PANEL))
+        .title(Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    // split body and footer
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(2), Constraint::Length(1)])
+        .split(inner);
+
+    // Body: draft text + a trailing caret so user sees where they are.
+    let body_text = if draft.is_empty() && !transcribing {
+        "(start typing, or :v to dictate)".to_string()
+    } else {
+        format!("{draft}▎")
+    };
+    let body_style = if draft.is_empty() && !transcribing {
+        Style::default().fg(MUTED).bg(PANEL)
+    } else {
+        Style::default().fg(TEXT).bg(PANEL)
+    };
+    let words = draft.split_whitespace().count();
+    let chars = draft.chars().count();
+
+    f.render_widget(
+        Paragraph::new(body_text)
+            .wrap(Wrap { trim: false })
+            .style(body_style),
+        parts[0],
+    );
+
+    let key = Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD);
+    let muted = Style::default().fg(MUTED);
+    let footer = Line::from(vec![
+        Span::styled("Enter", key),
+        Span::styled(" save   ", muted),
+        Span::styled("⇧Enter", key),
+        Span::styled(" newline   ", muted),
+        Span::styled(":v", key),
+        Span::styled(" dictate   ", muted),
+        Span::styled("Esc", key),
+        Span::styled(" cancel   ", muted),
+        Span::styled(format!("  {chars} chars · {words} words"), muted),
+    ]);
+    f.render_widget(
+        Paragraph::new(footer).style(Style::default().bg(PANEL)),
+        parts[1],
+    );
 }
 
 fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
