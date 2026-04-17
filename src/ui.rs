@@ -532,11 +532,12 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
         Style::default().fg(fg).bg(row_bg)
     };
 
+    let tree_glyph = app.comment_tree_glyph_for_line(line).unwrap_or(' ');
     let spans = vec![
         Span::styled(format!("{range_edge}"), edge_style),
         Span::styled(format!(" {old_n} {new_n} "), number_style),
         Span::styled(
-            format!(" {} ", app.comment_marker_for_line(line).unwrap_or(' ')),
+            format!(" {tree_glyph} "),
             marker_style.bg(row_bg),
         ),
         Span::styled(format!(" {marker} "), text_style),
@@ -563,9 +564,11 @@ fn draw_comment_row(
         Some('!') => Style::default().fg(COMMENT_ORPHAN).bg(bg),
         _ => Style::default().fg(COMMENT_DRAFT).bg(bg),
     };
-    let preview: String = body.chars().take(area.width.saturating_sub(22) as usize).collect();
+    let preview: String = body.chars().take(area.width.saturating_sub(24) as usize).collect();
     let line = Line::from(vec![
-        Span::styled("         review ", style.add_modifier(Modifier::BOLD)),
+        Span::styled("             ", Style::default().bg(bg)),
+        Span::styled("└─ ", style.add_modifier(Modifier::BOLD)),
+        Span::styled("review ", style.add_modifier(Modifier::BOLD)),
         Span::styled(format!("[{label}] "), style),
         Span::styled(preview, Style::default().fg(TEXT).bg(bg)),
     ]);
