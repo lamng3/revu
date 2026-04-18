@@ -255,8 +255,6 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
     let hint = Line::from("");
     let stage_width = snappy_inner.width as usize;
     let frame = app.snappy.duck_frame;
-
-    // Claws + eyes animate from frame (cycle ~2.2s).
     let claw_phase = frame % 16;
     let (l_claw, r_claw) = match claw_phase {
         0..=11 => ("<(", ")>"),
@@ -266,15 +264,12 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
     };
     let snapping = claw_phase == 14;
     let eyes = if frame % 90 < 2 { "°‿°" } else { "°º°" };
-
-    // Water flowing past stationary lobster.
     let wave_seed: Vec<char> = "~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈".chars().collect();
     let ws = wave_seed.len().max(1);
     let lobster_body: String = format!("{l_claw}{eyes}{r_claw}");
     let lobster_w = lobster_body.chars().count();
     let center = stage_width.saturating_sub(lobster_w) / 2;
     let shift = frame % ws;
-
     let left_water: String = (0..center)
         .map(|i| wave_seed[(i + shift) % ws])
         .collect();
@@ -283,17 +278,14 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
     let right_water: String = (0..right_w)
         .map(|i| wave_seed[(i + right_start + shift) % ws])
         .collect();
-
     let water_style = Style::default().fg(Color::Cyan);
     let lobster_color = if snapping { Color::LightRed } else { Color::Red };
     let lobster_style = Style::default().fg(lobster_color).add_modifier(Modifier::BOLD);
-
     let scene = Line::from(vec![
         Span::styled(left_water, water_style),
         Span::styled(lobster_body, lobster_style),
         Span::styled(right_water, water_style),
     ]);
-
     let message_line = Line::from(vec![
         Span::styled("» Snappy: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::styled(snappy_message, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
@@ -892,7 +884,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         heading("  COMMANDS"),
         row(":p", "publish drafts to your PR"),
-        row(":pr", "create a PR if none exists"),
+        row(":pr [title]", "create a PR (optional title; body auto-generated)"),
         row(":r", "reload the diff"),
         row(":v", "voice mode (whisper.cpp)"),
         row(":pet", "pet Snappy 🦞"),
