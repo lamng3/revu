@@ -1097,7 +1097,11 @@ impl App {
     pub fn execute_command(&mut self, cmd_raw: &str) -> Result<bool> {
         let cmd = cmd_raw.trim();
         let cmd = cmd.strip_prefix(':').unwrap_or(cmd);
-        match cmd {
+        let (verb, arg) = match cmd.split_once(char::is_whitespace) {
+            Some((v, a)) => (v, a.trim()),
+            None => (cmd, ""),
+        };
+        match verb {
             "" => Ok(false),
             "q" | "quit" | "exit" => Ok(true),
             "h" | "help" => {
@@ -1134,7 +1138,8 @@ impl App {
                 Ok(false)
             }
             "pr" | "pcreate" => {
-                self.create_pr();
+                let title_override = if arg.is_empty() { None } else { Some(arg.to_string()) };
+                self.create_pr(title_override);
                 Ok(false)
             }
             "range" => {
@@ -1151,6 +1156,7 @@ impl App {
             }
             other => {
                 self.status = format!("unknown command: :{other}  ·  try :help");
+                let _ = arg;
                 Ok(false)
             }
         }
@@ -1315,13 +1321,13 @@ impl App {
         }
     }
 
-    fn create_pr(&mut self) {
+    fn create_pr(&mut self, title_override: Option<String>) {
         if !publish::gh_available() {
             self.status = "`gh` CLI not found — install from https://cli.github.com".into();
             return;
         }
         self.status = "creating PR...".into();
-        match publish::create_pr(&self.repo_root) {
+        match publish::create_pr(&self.repo_root, title_override.as_deref()) {
             Ok(n) => {
                 self.status = format!("created PR #{n}");
             }

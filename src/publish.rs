@@ -21,8 +21,12 @@ pub fn current_pr_number(repo: &Path) -> Option<u64> {
     s.parse().ok()
 }
 
-pub fn create_pr(repo: &Path) -> Result<u64> {
-    let (title, body) = pr_title_and_body(repo);
+pub fn create_pr(repo: &Path, title_override: Option<&str>) -> Result<u64> {
+    let (auto_title, body) = pr_title_and_body(repo);
+    let title = title_override
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(auto_title);
     let mut cmd = Command::new("gh");
     cmd.current_dir(repo)
         .args(["pr", "create", "--web=false", "--title", &title, "--body", &body]);
