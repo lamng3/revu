@@ -982,6 +982,14 @@ impl App {
         }
     }
 
+    pub fn extend_review_range(&mut self, delta: i32) {
+        if self.review_range_anchor.is_none() {
+            self.review_range_anchor = Some(self.line_idx);
+        }
+        self.move_line(delta);
+        self.status = "review range extended  ·  Enter to comment".into();
+    }
+
     fn selected_diff_range(&self) -> Option<(usize, usize)> {
         let Some(file) = self.current_file() else {
             return None;

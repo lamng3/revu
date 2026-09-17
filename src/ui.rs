@@ -16,12 +16,9 @@ const PANEL: Color = Color::Black;
 const BORDER: Color = Color::DarkGray;
 const TEXT: Color = Color::White;
 const MUTED: Color = Color::Gray;
-const ADD_FG: Color = Color::Green;
-const ADD_BG: Color = Color::Indexed(22);
-const DEL_FG: Color = Color::Red;
-const DEL_BG: Color = Color::Indexed(52);
-const HUNK_FG: Color = Color::Cyan;
-const HUNK_BG: Color = Color::Black;
+const ADD_FG: Color = Color::LightGreen;
+const DEL_FG: Color = Color::LightRed;
+const HUNK_FG: Color = Color::LightCyan;
 const SEL_BG: Color = Color::DarkGray;
 const RANGE_BG: Color = Color::Indexed(18);      // deep indigo — stands out on black
 const RANGE_EDGE: Color = Color::LightYellow;    // bright ▌ along the left edge
@@ -29,11 +26,6 @@ const RANGE_FG: Color = Color::LightCyan;        // line-number + text accent in
 const COMMENT_DRAFT: Color = Color::Yellow;
 const COMMENT_PUBLISHED: Color = Color::Green;
 const COMMENT_ORPHAN: Color = Color::Yellow;
-const SNAPPY_WATER: Color = Color::Rgb(82, 175, 162);
-const SNAPPY_DEEP: Color = Color::Rgb(52, 124, 116);
-const SNAPPY_BUBBLE: Color = Color::Rgb(196, 232, 222);
-const SNAPPY_LOBSTER: Color = Color::Rgb(232, 88, 72);
-const SNAPPY_LOBSTER_HI: Color = Color::Rgb(255, 150, 120);
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
@@ -41,12 +33,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(8), Constraint::Length(3)])
+        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(3)])
         .split(size);
 
     let body = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(40), Constraint::Min(40)])
+        .constraints([Constraint::Length(32), Constraint::Min(48)])
         .split(layout[1]);
 
     app.click.file_rows.clear();
@@ -203,27 +195,14 @@ fn draw_comment_editor(f: &mut Frame, area: Rect, app: &App, draft: &str) {
 }
 
 fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-        .split(area);
-
-    let info_block = Block::default()
+    let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG))
         .title(Span::styled(" revu ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
-    let snappy_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightRed))
-        .title(Span::styled(" 🦞 snappy ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
-    let info_inner = info_block.inner(sections[0]);
-    let snappy_inner = snappy_block.inner(sections[1]);
-    f.render_widget(info_block, sections[0]);
-    f.render_widget(snappy_block, sections[1]);
-
-    let voice = if app.recorder.is_some() { "REC" } else { "idle" };
     let snappy_message = app
         .snappy
         .current_message
@@ -240,70 +219,19 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("branch ", Style::default().fg(MUTED)),
         Span::styled(app.branch_name.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
-        Span::styled(format!("drafts {}", app.unpublished_count()), Style::default().fg(COMMENT_DRAFT)),
-        Span::raw("  "),
-        Span::styled(format!("voice {}", voice), Style::default().fg(MUTED)),
-    ]);
-    let current = Line::from(vec![
         Span::styled("base ", Style::default().fg(MUTED)),
         Span::styled(app.base_label(), Style::default().fg(TEXT)),
-        Span::raw("   "),
-        Span::styled(":help", Style::default().fg(MUTED)),
-    ]);
-    let _ = SNAPPY_BUBBLE;
-    let _ = SNAPPY_DEEP;
-    let hint = Line::from("");
-    let stage_width = snappy_inner.width as usize;
-    let frame = app.snappy.duck_frame;
-    let claw_phase = frame % 16;
-    let (l_claw, r_claw) = match claw_phase {
-        0..=11 => ("<(", ")>"),
-        12..=13 => ("<<", ">>"),
-        14 => ("«(", ")»"),
-        _ => ("<(", ")>"),
-    };
-    let snapping = claw_phase == 14;
-    let eyes = if frame % 90 < 2 { "°‿°" } else { "°º°" };
-    let wave_seed: Vec<char> = "~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈~∿~≈~∿≈".chars().collect();
-    let ws = wave_seed.len().max(1);
-    let lobster_body: String = format!("{l_claw}{eyes}{r_claw}");
-    let lobster_w = lobster_body.chars().count();
-    let center = stage_width.saturating_sub(lobster_w) / 2;
-    let shift = frame % ws;
-    let left_water: String = (0..center)
-        .map(|i| wave_seed[(i + shift) % ws])
-        .collect();
-    let right_start = center + lobster_w;
-    let right_w = stage_width.saturating_sub(right_start);
-    let right_water: String = (0..right_w)
-        .map(|i| wave_seed[(i + right_start + shift) % ws])
-        .collect();
-    let water_style = Style::default().fg(Color::Cyan);
-    let lobster_color = if snapping { Color::LightRed } else { Color::Red };
-    let lobster_style = Style::default().fg(lobster_color).add_modifier(Modifier::BOLD);
-    let scene = Line::from(vec![
-        Span::styled(left_water, water_style),
-        Span::styled(lobster_body, lobster_style),
-        Span::styled(right_water, water_style),
-    ]);
-    let message_line = Line::from(vec![
-        Span::styled("» Snappy: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-        Span::styled(snappy_message, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled(format!("drafts {}", app.unpublished_count()), Style::default().fg(COMMENT_DRAFT)),
+        Span::raw("    "),
+        Span::styled("🦞 ", Style::default().fg(Color::LightRed)),
+        Span::styled(snappy_message, Style::default().fg(MUTED)),
     ]);
 
     f.render_widget(
-        Paragraph::new(vec![info, current])
-            .style(Style::default().bg(BG)),
-        info_inner,
+        Paragraph::new(info).style(Style::default().bg(BG)),
+        inner,
     );
-    f.render_widget(
-        Paragraph::new(vec![scene, message_line]),
-        snappy_inner,
-    );
-    let _ = hint;
-    let _ = SNAPPY_WATER;
-    let _ = SNAPPY_LOBSTER;
-    let _ = SNAPPY_LOBSTER_HI;
 }
 
 fn draw_files_panel(f: &mut Frame, area: Rect, app: &mut App) {
@@ -580,11 +508,6 @@ fn draw_inline_comment_editor(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let range_hint = if app.review_range_anchor.is_some() {
-        "  V range  c comment  x delete"
-    } else {
-        "  V start range"
-    };
     let lines = vec![
         Line::from(vec![
             Span::styled("comment ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
@@ -593,7 +516,6 @@ fn draw_inline_comment_editor(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("esc cancel", Style::default().fg(MUTED)),
             Span::raw("  "),
             Span::styled("shift+enter newline", Style::default().fg(MUTED)),
-            Span::styled(range_hint, Style::default().fg(MUTED)),
         ]),
         Line::from(vec![
             Span::styled("> ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
@@ -618,10 +540,10 @@ fn comment_marker_style(marker: Option<char>) -> Style {
 
 fn style_for(line: &DiffLine) -> (Color, Option<Color>, &'static str) {
     match line.kind {
-        LineKind::Add => (ADD_FG, Some(ADD_BG), "+"),
-        LineKind::Del => (DEL_FG, Some(DEL_BG), "-"),
+        LineKind::Add => (ADD_FG, None, "+"),
+        LineKind::Del => (DEL_FG, None, "-"),
         LineKind::Context => (TEXT, None, " "),
-        LineKind::HunkHeader => (HUNK_FG, Some(HUNK_BG), "@"),
+        LineKind::HunkHeader => (HUNK_FG, None, "@"),
     }
 }
 
@@ -656,8 +578,17 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         }
         Mode::Normal => Line::from(vec![
             Span::styled(app.status.clone(), Style::default().fg(TEXT)),
-            Span::raw("  ·  "),
-            Span::styled("press :help for commands", Style::default().fg(MUTED)),
+            Span::raw("    "),
+            Span::styled("↑↓", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" move  ", Style::default().fg(MUTED)),
+            Span::styled("Tab", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" file  ", Style::default().fg(MUTED)),
+            Span::styled("Enter", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" comment  ", Style::default().fg(MUTED)),
+            Span::styled("?", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" help  ", Style::default().fg(MUTED)),
+            Span::styled("q", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" quit", Style::default().fg(MUTED)),
         ]),
     };
     f.render_widget(
@@ -855,45 +786,28 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let lines = vec![
-        heading("  NAVIGATE"),
-        row("j / k", "move by line"),
+        heading("  READ"),
+        row("↑ ↓ / j k", "move through the diff"),
         row("Tab / ⇧Tab", "next / previous file"),
-        row("n / N", "next / previous hunk"),
-        row("} / {", "next / previous commented line"),
-        row("g / G", "top / bottom of file"),
-        row("J", "jump to latest diff"),
+        row("[ / ]", "previous / next hunk"),
+        row("g / G", "top / bottom"),
         Line::from(""),
-        heading("  COMMENT"),
-        row("c", "add or edit comment on this line"),
-        row("V", "start / clear multi-line range"),
-        row("x", "delete draft on this line"),
-        row("m", "open saved comments"),
+        heading("  REVIEW"),
+        row("Enter / c", "add or edit a comment"),
+        row("⇧↑ / ⇧↓", "extend a line selection"),
+        row("Delete / x", "remove a draft comment"),
+        row("f / m", "browse files / comments"),
         Line::from(""),
-        heading("  EDITOR"),
-        row("type", "insert text at the ▎ caret"),
-        row("← / →", "move caret by one character"),
-        row("↑ / ↓", "move caret between lines"),
-        row("Home / End", "jump to line start / end"),
-        row("Backspace", "delete before caret"),
-        row("Delete", "delete at caret"),
-        row("Ctrl+U", "clear the whole draft"),
-        row("Ctrl+V", "dictate more — appends voice to the draft"),
-        row("Enter", "save draft"),
-        row("Ctrl+J", "newline at caret (⌥Enter also works)"),
-        row("Esc", "cancel without saving"),
-        Line::from(""),
-        heading("  COMMANDS"),
-        row(":p", "publish drafts to your PR"),
-        row(":pr [title]", "create a PR (optional title; body auto-generated)"),
-        row(":r", "reload the diff"),
-        row(":v", "voice mode (whisper.cpp)"),
-        row(":pet", "pet Snappy 🦞"),
-        row(":q", "quit"),
-        Line::from(""),
+        heading("  APP"),
+        row("r", "reload changes"),
+        row("? / q", "help / quit"),
+        row(":p", "publish draft comments"),
+        row(":pr [title]", "create a pull request"),
+        row(":v", "dictate a comment"),
     ];
     let _ = muted_style;
     let _ = accent_style;
-    let width = area.width.min(88);
+    let width = area.width.min(66);
     let desired_height = (lines.len() as u16) + 1 + 2;
     let height = desired_height.min(area.height.saturating_sub(2)).max(10);
     let rect = centered_rect(area, width, height);

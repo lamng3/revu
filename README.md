@@ -1,40 +1,37 @@
-# 🦞 revu 
+# 🦞 revu
 
 **Review your own code before you ship it.**
 
-Walk the diff. Mark what matters. Ship the reviews. From terminal.
+Read a clean diff, leave notes, and publish the review—all from the terminal.
 
-```
-~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
-» Snappy: small PRs, big wins.
-```
 <img width="1887" height="917" alt="image" src="https://github.com/user-attachments/assets/fbc20fd5-9707-4f2d-9ea1-e44663f59aba" />
-
-## What it does
-
-- 📂 Loads your branch's diff against `origin/HEAD` (or any base)
-- ✎ Drop inline comments on any line — single or multi-line ranges
-- 💾 Drafts saved locally in `.revu/` and survive reloads
-- 🚀 `:p` publishes every draft to your PR as real review comments (via `gh`)
-- 🎙 `:v` dictates comments via local whisper.cpp — no cloud, no tokens
-- 🦞 Ships with **Snappy**, a lobster who lives in the corner and cheers you on
-
-## Meet Snappy
-
-Snappy is the whole point. He sits there while water flows past, snaps his claws, and drops affirmations like *"delete more than you add"* and *"snip snap, ship it!"*. Pet him with `:pet`. Customize his voice at `~/.revu/affirmations.txt`.
 
 ## Quick start
 
 ```sh
 git clone https://github.com/lamng3/revu.git && cd revu
 cargo build --release
-cd /your/repo && revu
+./target/release/revu /path/to/repo
 ```
 
-Press `?` for keys. `:q` to quit.
+## Keys
 
-**Needs:** `git`, [`gh`](https://cli.github.com) for publishing, [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp) for voice.
+| Key | Action |
+| --- | --- |
+| `↑` `↓` or `j` `k` | Read the diff |
+| `Tab` / `Shift+Tab` | Change file |
+| `Enter` | Add or edit a comment |
+| `Shift+↑` / `Shift+↓` | Select multiple lines |
+| `Delete` | Remove a draft |
+| `?` | Open the quick reference |
+| `q` | Quit |
+
+Useful commands: `:p` publishes drafts, `:pr [title]` creates a pull request,
+and `:v` dictates a comment with local whisper.cpp.
+
+Drafts stay in `.revu/`. Publishing requires [`gh`](https://cli.github.com);
+voice requires [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp).
 
 ## License
 
-MIT. Built with [ratatui](https://github.com/ratatui-org/ratatui), [cpal](https://github.com/RustAudio/cpal), [whisper.cpp](https://github.com/ggerganov/whisper.cpp), and one cold-blooded lobster.
+MIT.
