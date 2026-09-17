@@ -38,6 +38,9 @@ remote default branch. Working-tree and untracked changes are included.
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` | Move through the diff |
+| `←` / `→` or `Shift+wheel` | Pan code and disable wrapping |
+| `w` | Toggle code wrapping |
+| `a` | Toggle full file / modified sections |
 | `Tab` / `Shift+Tab` | Next / previous file |
 | `Enter` | Add or edit a comment |
 | `Shift+↑` / `Shift+↓` | Extend a line selection |
@@ -46,6 +49,14 @@ remote default branch. Working-tree and untracked changes are included.
 | `Shift+R` | Reload changes |
 | `?` | Show the quick reference |
 | `q` | Quit |
+
+Long code lines pan horizontally by default; press `w` to wrap them instead.
+Drag the files panel's rounded right border to resize it. Line-number and
+review gutters stay fixed while code moves. The bottom scrollbar can also be
+clicked or dragged.
+
+Modified rows use light-green and light-red backgrounds instead of `+` and `-`
+markers.
 
 Comments are saved locally in `.revu/`.
 
@@ -58,6 +69,7 @@ Type `:` to enter a command.
 | `:p` | Publish draft comments |
 | `:pr [title]` | Create a pull request |
 | `:v` | Start or stop voice recording |
+| `:all` | Toggle full file / modified sections |
 | `:pet` | Pet Snappy |
 | `:q` | Quit |
 

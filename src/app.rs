@@ -37,6 +37,9 @@ pub struct ClickAreas {
     pub comment_rows: Vec<(u16, u16, usize)>,
     pub file_panel_bounds: Option<(u16, u16, u16, u16)>,
     pub diff_panel_bounds: Option<(u16, u16, u16, u16)>,
+    pub body_bounds: Option<(u16, u16, u16, u16)>,
+    pub file_resize_col: Option<u16>,
+    pub horizontal_scrollbar_bounds: Option<(u16, u16, u16)>,
 }
 
 impl Default for ClickAreas {
@@ -48,6 +51,9 @@ impl Default for ClickAreas {
             comment_rows: vec![],
             file_panel_bounds: None,
             diff_panel_bounds: None,
+            body_bounds: None,
+            file_resize_col: None,
+            horizontal_scrollbar_bounds: None,
         }
     }
 }
@@ -73,6 +79,13 @@ pub struct App {
     pub comment_cursor: usize,
     pub click: ClickAreas,
     pub diff_viewport_height: u16,
+    pub diff_code_width: u16,
+    pub diff_horizontal_scroll: usize,
+    pub wrap_code: bool,
+    pub full_file_view: bool,
+    pub file_panel_width: u16,
+    pub resizing_file_panel: bool,
+    pub dragging_horizontal_scrollbar: bool,
     pub base_ref: Option<String>,
     pub file_overlay_idx: usize,
     pub comment_overlay_idx: usize,
@@ -113,6 +126,13 @@ impl App {
             comment_cursor: 0,
             click: ClickAreas::default(),
             diff_viewport_height: 10,
+            diff_code_width: 40,
+            diff_horizontal_scroll: 0,
+            wrap_code: false,
+            full_file_view: false,
+            file_panel_width: 40,
+            resizing_file_panel: false,
+            dragging_horizontal_scrollbar: false,
             base_ref,
             file_overlay_idx: 0,
             comment_overlay_idx: 0,
@@ -164,8 +184,16 @@ impl App {
             .current_dir(&self.repo_root)
             .args(["fetch", "--quiet", "--prune", "origin"])
             .output();
+        self.load_diff_from_repo();
+    }
+
+    fn load_diff_from_repo(&mut self) {
         let current_path = self.current_file().map(|f| f.path.clone());
-        match git::load_diff(&self.repo_root, self.base_ref.clone()) {
+        match git::load_diff(
+            &self.repo_root,
+            self.base_ref.clone(),
+            self.full_file_view,
+        ) {
             Ok(ctx) => {
                 let files = crate::diff::parse_unified(&ctx.raw);
                 let file_count = files.len();
@@ -188,6 +216,7 @@ impl App {
                     self.line_idx = 0;
                 }
                 self.scroll = 0;
+                self.diff_horizontal_scroll = 0;
                 self.review_range_anchor = None;
                 self.file_overlay_idx = self.file_idx;
                 self.file_panel_scroll = self.file_panel_scroll.min(self.files.len().saturating_sub(1));
@@ -280,6 +309,71 @@ impl App {
         }
     }
 
+    pub fn scroll_diff_horizontal(&mut self, delta: i32) {
+        if self.wrap_code {
+            if delta <= 0 {
+                return;
+            }
+            self.wrap_code = false;
+        }
+        let max_scroll = self.horizontal_scroll_limit();
+        self.diff_horizontal_scroll =
+            (self.diff_horizontal_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+        self.update_horizontal_scroll_status();
+    }
+
+    fn horizontal_scroll_limit(&self) -> usize {
+        let max_line_width = self
+            .current_file()
+            .map(|file| {
+                file.lines
+                    .iter()
+                    .map(|line| line.text.chars().count())
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        max_line_width.saturating_sub(self.diff_code_width.max(1) as usize)
+    }
+
+    fn set_horizontal_scroll_from_col(&mut self, col: u16, x: u16, width: u16) {
+        let max_scroll = self.horizontal_scroll_limit();
+        let track_width = width.saturating_sub(1).max(1) as usize;
+        let position = col.saturating_sub(x).min(width.saturating_sub(1)) as usize;
+        self.diff_horizontal_scroll = position.saturating_mul(max_scroll) / track_width;
+        self.update_horizontal_scroll_status();
+    }
+
+    fn update_horizontal_scroll_status(&mut self) {
+        self.status = if self.diff_horizontal_scroll == 0 {
+            "code aligned left".into()
+        } else {
+            format!("code column {}", self.diff_horizontal_scroll + 1)
+        };
+    }
+
+    pub fn toggle_code_wrap(&mut self) {
+        self.wrap_code = !self.wrap_code;
+        self.diff_horizontal_scroll = 0;
+        self.status = if self.wrap_code {
+            "code wrapping on".into()
+        } else {
+            "code wrapping off  ·  ← → to pan".into()
+        };
+    }
+
+    pub fn toggle_full_file_view(&mut self) {
+        self.full_file_view = !self.full_file_view;
+        self.load_diff_from_repo();
+        if !self.status.starts_with("diff error:") {
+            self.status = if self.full_file_view {
+                "showing full files  ·  a for changes only".into()
+            } else {
+                "showing modified sections  ·  a for full files".into()
+            };
+        }
+    }
+
     pub fn ensure_visible(&mut self) {
         let h = self.diff_viewport_height as usize;
         if h == 0 {
@@ -305,6 +399,7 @@ impl App {
             self.follow_selected_file = true;
             self.line_idx = 0;
             self.scroll = 0;
+            self.diff_horizontal_scroll = 0;
             self.review_range_anchor = None;
         }
     }
@@ -481,6 +576,7 @@ impl App {
                     self.file_idx = self.file_overlay_idx;
                     self.line_idx = 0;
                     self.scroll = 0;
+                    self.diff_horizontal_scroll = 0;
                 }
                 self.overlay = Overlay::None;
             }
@@ -506,6 +602,7 @@ impl App {
         {
             self.file_idx = file_idx;
             self.file_overlay_idx = file_idx;
+            self.diff_horizontal_scroll = 0;
             if let Some(line_idx) = file.lines.iter().position(|line| match comment.side {
                 Side::Right => line.new_lineno == Some(comment.line),
                 Side::Left => line.old_lineno == Some(comment.line),
@@ -517,6 +614,9 @@ impl App {
     }
 
     pub fn on_click(&mut self, col: u16, row: u16) {
+        if self.resizing_file_panel || self.dragging_horizontal_scrollbar {
+            return;
+        }
         if self.overlay == Overlay::None {
             if let Some((x, y, w, h)) = self.click.file_panel_bounds {
                 if col >= x && col < x + w && row >= y && row < y + h {
@@ -535,6 +635,7 @@ impl App {
                             self.follow_selected_file = true;
                             self.line_idx = 0;
                             self.scroll = 0;
+                            self.diff_horizontal_scroll = 0;
                             self.review_range_anchor = None;
                             return;
                         }
@@ -625,6 +726,24 @@ impl App {
         if self.overlay != Overlay::None {
             return;
         }
+        if let Some((x, y, width)) = self.click.horizontal_scrollbar_bounds {
+            if row == y && col >= x && col < x + width {
+                self.dragging_horizontal_scrollbar = true;
+                self.mouse_drag_anchor = None;
+                self.set_horizontal_scroll_from_col(col, x, width);
+                return;
+            }
+        }
+        if let (Some(divider), Some((_, y, _, h))) =
+            (self.click.file_resize_col, self.click.body_bounds)
+        {
+            if col == divider && row >= y && row < y + h {
+                self.resizing_file_panel = true;
+                self.mouse_drag_anchor = None;
+                self.status = "resizing file panel".into();
+                return;
+            }
+        }
         if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
             if col >= x && col < x + w && row >= y && row < y + h {
                 for (r, line_idx) in &self.click.diff_rows {
@@ -641,6 +760,23 @@ impl App {
     }
 
     pub fn on_drag_update(&mut self, col: u16, row: u16) {
+        if self.dragging_horizontal_scrollbar {
+            if let Some((x, _, width)) = self.click.horizontal_scrollbar_bounds {
+                self.set_horizontal_scroll_from_col(col, x, width);
+            }
+            return;
+        }
+        if self.resizing_file_panel {
+            if let Some((x, _, width, _)) = self.click.body_bounds {
+                let max_width = width.saturating_sub(40).max(20);
+                self.file_panel_width = col
+                    .saturating_sub(x)
+                    .saturating_add(1)
+                    .clamp(20, max_width);
+                self.status = format!("files panel {} columns", self.file_panel_width);
+            }
+            return;
+        }
         let Some(anchor) = self.mouse_drag_anchor else {
             return;
         };
@@ -660,10 +796,14 @@ impl App {
 
     pub fn on_drag_end(&mut self) {
         self.mouse_drag_anchor = None;
+        self.resizing_file_panel = false;
+        self.dragging_horizontal_scrollbar = false;
     }
 
     pub fn cancel_mouse_selection(&mut self) {
         self.mouse_drag_anchor = None;
+        self.resizing_file_panel = false;
+        self.dragging_horizontal_scrollbar = false;
         if self.review_range_anchor.is_some() {
             self.review_range_anchor = None;
             self.status = "review range cleared".into();
@@ -893,6 +1033,12 @@ impl App {
             self.help_scroll = (self.help_scroll as i32 + delta).max(0) as usize;
             return;
         }
+        if let Some((x, y, width)) = self.click.horizontal_scrollbar_bounds {
+            if row == y && col >= x && col < x + width {
+                self.scroll_diff_horizontal(delta * 4);
+                return;
+            }
+        }
         if let Some((x, y, w, h)) = self.click.file_panel_bounds {
             if col >= x && col < x + w && row >= y && row < y + h {
                 self.scroll_file_panel(delta, file_tree_rows);
@@ -902,6 +1048,14 @@ impl App {
         if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
             if col >= x && col < x + w && row >= y && row < y + h {
                 self.scroll_diff_view(delta * 3);
+            }
+        }
+    }
+
+    pub fn on_horizontal_scroll(&mut self, col: u16, row: u16, delta: i32) {
+        if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
+            if col >= x && col < x + w && row >= y && row < y + h {
+                self.scroll_diff_horizontal(delta);
             }
         }
     }
@@ -1139,6 +1293,10 @@ impl App {
             }
             "r" | "reload" => {
                 self.reload_diff();
+                Ok(false)
+            }
+            "view" | "all" => {
+                self.toggle_full_file_view();
                 Ok(false)
             }
             "p" | "publish" => {
