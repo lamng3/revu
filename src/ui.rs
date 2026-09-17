@@ -789,9 +789,8 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
 
     let lines = vec![
         heading("  READ"),
-        row("↑ ↓ / j k", "move through the diff"),
+        row("↑ ↓", "move through the diff"),
         row("Tab / ⇧Tab", "next / previous file"),
-        row("[ / ]", "previous / next hunk"),
         row("g / G", "top / bottom"),
         Line::from(""),
         heading("  REVIEW"),
