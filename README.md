@@ -1,36 +1,71 @@
 # 🦞 revu
 
-**Review your own code before you ship it.**
+Read your code changes before you ship them.
 
-Read a clean diff, leave notes, and publish the review—all from the terminal.
+`revu` is a small terminal diff reader for reviewing a branch, drafting inline
+comments, and publishing them to a GitHub pull request.
 
-<img width="1887" height="917" alt="image" src="https://github.com/user-attachments/assets/fbc20fd5-9707-4f2d-9ea1-e44663f59aba" />
+## Install
 
-## Quick start
-
-```sh
+```bash
 git clone https://github.com/lamng3/revu.git && cd revu
-cargo build --release
-./target/release/revu /path/to/repo
+cargo install --path .
 ```
 
-## Keys
+Requires Rust and Git. Publishing comments or creating a pull request also
+requires the authenticated [`gh`](https://cli.github.com) CLI.
+
+## Usage
+
+Run `revu` inside a repository:
+
+```bash
+revu
+```
+
+Or pass a repository and optional base branch:
+
+```bash
+revu /path/to/repository
+revu /path/to/repository main
+```
+
+The default view compares the current branch with `main`, `master`, or the
+remote default branch. Working-tree and untracked changes are included.
+
+## Controls
 
 | Key | Action |
 | --- | --- |
-| `↑` `↓` or `j` `k` | Read the diff |
-| `Tab` / `Shift+Tab` | Change file |
+| `↑` / `↓` or `j` / `k` | Move through the diff |
+| `Tab` / `Shift+Tab` | Next / previous file |
+| `[` / `]` | Previous / next hunk |
 | `Enter` | Add or edit a comment |
-| `Shift+↑` / `Shift+↓` | Select multiple lines |
+| `Shift+↑` / `Shift+↓` | Extend a line selection |
 | `Delete` | Remove a draft |
-| `?` | Open the quick reference |
+| `f` / `m` | Browse files / comments |
+| `Shift+R` | Reload changes |
+| `?` | Show the quick reference |
 | `q` | Quit |
 
-Useful commands: `:p` publishes drafts, `:pr [title]` creates a pull request,
-and `:v` dictates a comment with local whisper.cpp.
+Comments are saved locally in `.revu/`.
 
-Drafts stay in `.revu/`. Publishing requires [`gh`](https://cli.github.com);
-voice requires [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp).
+## Commands
+
+Type `:` to enter a command.
+
+| Command | Action |
+| --- | --- |
+| `:p` | Publish draft comments |
+| `:pr [title]` | Create a pull request |
+| `:v` | Start or stop voice recording |
+| `:pet` | Pet Snappy |
+| `:q` | Quit |
+
+Voice transcription uses local
+[`whisper.cpp`](https://github.com/ggerganov/whisper.cpp). Native recording is
+currently available on macOS and Windows; Linux builds keep voice recording
+disabled to avoid a system ALSA dependency.
 
 ## License
 
