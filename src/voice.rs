@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Result};
+#[cfg(not(target_os = "linux"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(not(target_os = "linux"))]
 use std::sync::{Arc, Mutex};
 
+#[cfg(not(target_os = "linux"))]
 pub struct Recorder {
     stream: cpal::Stream,
     samples: Arc<Mutex<Vec<f32>>>,
@@ -13,6 +16,7 @@ pub struct Recorder {
     wav_path: PathBuf,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl Recorder {
     pub fn start(wav_path: PathBuf) -> Result<Self> {
         let host = cpal::default_host();
@@ -89,6 +93,24 @@ impl Recorder {
         w.finalize()?;
         // If sample rate != 16000, whisper-cli handles resampling itself.
         Ok(self.wav_path)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub struct Recorder;
+
+#[cfg(target_os = "linux")]
+impl Recorder {
+    pub fn start(_wav_path: PathBuf) -> Result<Self> {
+        Err(anyhow!(
+            "voice recording is unavailable in this Linux build"
+        ))
+    }
+
+    pub fn stop(self) -> Result<PathBuf> {
+        Err(anyhow!(
+            "voice recording is unavailable in this Linux build"
+        ))
     }
 }
 
