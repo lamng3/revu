@@ -37,9 +37,8 @@ remote default branch. Working-tree and untracked changes are included.
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓` or `j` / `k` | Move through the diff |
+| `↑` / `↓` | Move through the diff |
 | `Tab` / `Shift+Tab` | Next / previous file |
-| `[` / `]` | Previous / next hunk |
 | `Enter` | Add or edit a comment |
 | `Shift+↑` / `Shift+↓` | Extend a line selection |
 | `Delete` | Remove a draft |
