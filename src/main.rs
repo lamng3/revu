@@ -301,15 +301,15 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
     match (code, mods) {
         (KeyCode::Char(':'), _) => app.mode = Mode::Command(String::new()),
         (KeyCode::Char('?'), _) => app.open_help(),
-        (KeyCode::Char('c'), KeyModifiers::NONE) => app.begin_comment(),
-        (KeyCode::Char('x'), KeyModifiers::NONE) => app.delete_current_comment(),
+        (KeyCode::Enter, _) | (KeyCode::Char('c'), KeyModifiers::NONE) => app.begin_comment(),
+        (KeyCode::Delete, _) | (KeyCode::Char('x'), KeyModifiers::NONE) => app.delete_current_comment(),
         (KeyCode::Char('V'), _) => app.toggle_review_range(),
         (KeyCode::Char('r'), KeyModifiers::NONE) => app.reload_diff(),
         (KeyCode::Char('f'), KeyModifiers::NONE) => app.toggle_files_overlay(),
         (KeyCode::Char('m'), KeyModifiers::NONE) => app.toggle_comments_overlay(),
         (KeyCode::Char('p'), KeyModifiers::CONTROL) => app.toggle_files_overlay(),
-        (KeyCode::Up, m) if m.contains(KeyModifiers::SHIFT) => app.move_file(-1),
-        (KeyCode::Down, m) if m.contains(KeyModifiers::SHIFT) => app.move_file(1),
+        (KeyCode::Up, m) if m.contains(KeyModifiers::SHIFT) => app.extend_review_range(-1),
+        (KeyCode::Down, m) if m.contains(KeyModifiers::SHIFT) => app.extend_review_range(1),
         (KeyCode::Up, m) if m.contains(KeyModifiers::ALT) => app.move_file(-1),
         (KeyCode::Down, m) if m.contains(KeyModifiers::ALT) => app.move_file(1),
         (KeyCode::BackTab, _) => app.move_file(-1),
@@ -329,6 +329,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         (KeyCode::Char('G'), _) => app.goto_bottom(),
         (KeyCode::PageDown, _) => app.move_line(20),
         (KeyCode::PageUp, _) => app.move_line(-20),
+        (KeyCode::Char('q'), KeyModifiers::NONE) => return Ok(true),
         (KeyCode::Esc, _) => app.close_overlay(),
         _ => {}
     }
