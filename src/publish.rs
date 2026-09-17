@@ -21,15 +21,75 @@ pub fn current_pr_number(repo: &Path) -> Option<u64> {
     s.parse().ok()
 }
 
-pub fn create_pr(repo: &Path) -> Result<u64> {
-    let out = Command::new("gh")
-        .current_dir(repo)
-        .args(["pr", "create", "--fill", "--web=false"])
-        .output()?;
+pub fn create_pr(repo: &Path, title_override: Option<&str>) -> Result<u64> {
+    let (auto_title, body) = pr_title_and_body(repo);
+    let title = title_override
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(auto_title);
+    let mut cmd = Command::new("gh");
+    cmd.current_dir(repo)
+        .args(["pr", "create", "--web=false", "--title", &title, "--body", &body]);
+    let out = cmd.output()?;
     if !out.status.success() {
-        return Err(anyhow!("gh pr create failed: {}", String::from_utf8_lossy(&out.stderr)));
+        // Fall back to --fill if the structured form fails for any reason
+        // (e.g. upstream branch not yet pushed, auto-tracked). Surface the
+        // original error if fill also fails.
+        let original = String::from_utf8_lossy(&out.stderr).to_string();
+        let fallback = Command::new("gh")
+            .current_dir(repo)
+            .args(["pr", "create", "--fill", "--web=false"])
+            .output()?;
+        if !fallback.status.success() {
+            return Err(anyhow!(
+                "gh pr create failed: {}{}",
+                original,
+                String::from_utf8_lossy(&fallback.stderr)
+            ));
+        }
     }
     current_pr_number(repo).ok_or_else(|| anyhow!("created PR but could not determine number"))
+}
+
+fn pr_title_and_body(repo: &Path) -> (String, String) {
+    // Title: first line of the newest commit on this branch.
+    let title = run_git(repo, &["log", "-1", "--pretty=%s"]).unwrap_or_else(|| "revu: review".into());
+
+    // Body: list of commits on this branch that aren't on the base, plus a
+    // short diff summary. Falls back gracefully if `origin/HEAD` isn't known.
+    let base = run_git(repo, &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+        .map(|s| s)
+        .unwrap_or_else(|| "origin/main".into());
+    let commits = run_git(repo, &["log", "--pretty=- %s", &format!("{base}..HEAD")])
+        .unwrap_or_default();
+    let shortstat = run_git(repo, &["diff", "--shortstat", &format!("{base}...HEAD")])
+        .unwrap_or_default();
+    let branch = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .unwrap_or_else(|| "HEAD".into());
+
+    let mut body = String::new();
+    body.push_str("## Summary\n\n");
+    if commits.trim().is_empty() {
+        body.push_str(&format!("Changes on `{branch}`.\n"));
+    } else {
+        body.push_str(&commits);
+        body.push('\n');
+    }
+    if !shortstat.trim().is_empty() {
+        body.push_str(&format!("\n**Diff:**{shortstat}\n"));
+    }
+    body.push_str("\n## Test plan\n\n- [ ] Manual smoke test\n\n");
+    body.push_str("🦞 Drafted by revu — `:pr`\n");
+
+    (title, body)
+}
+
+fn run_git(repo: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git").current_dir(repo).args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
 
 pub fn post_review_comment(repo: &Path, pr: u64, c: &Comment) -> Result<()> {
