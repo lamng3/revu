@@ -2,7 +2,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{
+        Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, Wrap,
+    },
     Frame,
 };
 use std::collections::BTreeSet;
@@ -18,14 +21,23 @@ const TEXT: Color = Color::White;
 const MUTED: Color = Color::Gray;
 const ADD_FG: Color = Color::LightGreen;
 const DEL_FG: Color = Color::LightRed;
+const CODE_BG: Color = Color::Black;
+const CODE_TEXT: Color = Color::White;
+const CODE_MUTED: Color = Color::Gray;
+const CODE_ADD_FG: Color = Color::Black;
+const CODE_ADD_BG: Color = Color::Indexed(194);
+const CODE_DEL_FG: Color = Color::Black;
+const CODE_DEL_BG: Color = Color::Indexed(224);
 const HUNK_FG: Color = Color::LightCyan;
+const HUNK_BG: Color = Color::Black;
 const SEL_BG: Color = Color::DarkGray;
-const RANGE_BG: Color = Color::Indexed(18);      // deep indigo — stands out on black
-const RANGE_EDGE: Color = Color::LightYellow;    // bright ▌ along the left edge
-const RANGE_FG: Color = Color::LightCyan;        // line-number + text accent inside the range
+const RANGE_BG: Color = Color::Indexed(18);
+const RANGE_EDGE: Color = Color::LightYellow;
+const RANGE_FG: Color = Color::LightCyan;
 const COMMENT_DRAFT: Color = Color::Yellow;
 const COMMENT_PUBLISHED: Color = Color::Green;
 const COMMENT_ORPHAN: Color = Color::Yellow;
+const DIFF_GUTTER_WIDTH: u16 = 18;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
@@ -33,12 +45,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(3)])
+        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(2)])
         .split(size);
 
+    let max_file_width = layout[1].width.saturating_sub(40).max(20);
+    let file_panel_width = app.file_panel_width.clamp(20, max_file_width);
     let body = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(32), Constraint::Min(48)])
+        .constraints([
+            Constraint::Length(file_panel_width),
+            Constraint::Min(40),
+        ])
         .split(layout[1]);
 
     app.click.file_rows.clear();
@@ -47,6 +64,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     app.click.diff_rows.clear();
     app.click.file_panel_bounds = None;
     app.click.diff_panel_bounds = None;
+    app.click.horizontal_scrollbar_bounds = None;
+    app.click.body_bounds = Some((
+        layout[1].x,
+        layout[1].y,
+        layout[1].width,
+        layout[1].height,
+    ));
+    app.click.file_resize_col = Some(body[0].x + body[0].width.saturating_sub(1));
 
     draw_banner(f, layout[0], app);
     draw_files_panel(f, body[0], app);
@@ -237,9 +262,13 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App) {
 fn draw_files_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG))
-        .title(Span::styled(" files ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " files ↔ ",
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(area);
     f.render_widget(block, area);
     app.click.file_panel_bounds = Some((inner.x, inner.y, inner.width, inner.height));
@@ -309,18 +338,25 @@ fn draw_files_panel(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().bg(PANEL))
+        .borders(Borders::TOP | Borders::RIGHT | Borders::BOTTOM)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().bg(CODE_BG))
         .border_style(Style::default().fg(BORDER))
-        .title(Span::styled(" review ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " review ",
+            Style::default().fg(CODE_TEXT).bg(CODE_BG).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(area);
     f.render_widget(block, area);
     app.click.diff_panel_bounds = Some((inner.x, inner.y, inner.width, inner.height));
 
     let Some(file) = app.current_file().cloned() else {
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled("no diff to show", Style::default().fg(MUTED))))
-                .style(Style::default().bg(PANEL)),
+            Paragraph::new(Line::from(Span::styled(
+                "no diff to show",
+                Style::default().fg(CODE_MUTED),
+            )))
+            .style(Style::default().bg(CODE_BG)),
             inner,
         );
         return;
@@ -331,35 +367,85 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
     let editor_h = if inline_editor { 2u16 } else { 0u16 };
     let diff_h = inner.height.saturating_sub(header_h + editor_h);
     app.diff_viewport_height = diff_h;
+    app.diff_code_width = inner.width.saturating_sub(DIFF_GUTTER_WIDTH).max(1);
+    let max_line_width = file
+        .lines
+        .iter()
+        .map(|line| line.text.chars().count())
+        .max()
+        .unwrap_or(0);
+    let max_horizontal_scroll =
+        max_line_width.saturating_sub(app.diff_code_width as usize);
+    app.diff_horizontal_scroll = app.diff_horizontal_scroll.min(max_horizontal_scroll);
 
     let (adds, dels) = app.file_change_counts(app.file_idx);
     let mut header_spans = vec![
-        Span::styled(file.path.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            file.path.clone(),
+            Style::default()
+                .fg(CODE_TEXT)
+                .bg(CODE_BG)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("  "),
-        Span::styled(format!("+{adds}"), Style::default().fg(ADD_FG)),
+        Span::styled(
+            format!("+{adds}"),
+            Style::default().fg(CODE_ADD_FG).bg(CODE_BG),
+        ),
         Span::raw(" "),
-        Span::styled(format!("-{dels}"), Style::default().fg(DEL_FG)),
+        Span::styled(
+            format!("-{dels}"),
+            Style::default().fg(CODE_DEL_FG).bg(CODE_BG),
+        ),
         Span::raw("  "),
         Span::styled(
             format!("line {}/{}", app.line_idx.saturating_add(1), file.lines.len().max(1)),
-            Style::default().fg(MUTED),
+            Style::default().fg(CODE_MUTED).bg(CODE_BG),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            if app.full_file_view {
+                "full file"
+            } else {
+                "changes"
+            },
+            Style::default().fg(HUNK_FG).bg(CODE_BG),
         ),
     ];
+    if app.diff_horizontal_scroll > 0 {
+        header_spans.push(Span::raw("  "));
+        header_spans.push(Span::styled(
+            format!("↔ col {}", app.diff_horizontal_scroll + 1),
+            Style::default().fg(HUNK_FG).bg(CODE_BG),
+        ));
+    }
     if app.multiline_active() {
         if let Some((start, end)) = app.multiline_range() {
             header_spans.push(Span::raw("  "));
             header_spans.push(Span::styled(
                 format!("▌ range {}–{} ({} lines)", start, end, end - start + 1),
-                Style::default().fg(RANGE_EDGE).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(RANGE_EDGE)
+                    .bg(CODE_BG)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
     }
     let header = Line::from(header_spans);
     f.render_widget(
-        Paragraph::new(header).style(Style::default().bg(PANEL)),
+        Paragraph::new(header).style(Style::default().bg(CODE_BG)),
         Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
     );
 
+    if app.wrap_code && app.line_idx >= app.scroll {
+        let rows_to_selection: usize = file.lines[app.scroll..=app.line_idx]
+            .iter()
+            .map(|line| wrapped_line_height(line, app.diff_code_width))
+            .sum();
+        if rows_to_selection > diff_h as usize {
+            app.scroll = app.line_idx;
+        }
+    }
     let start = app.scroll;
     let mut idx = start;
     let mut row_offset = 0u16;
@@ -368,19 +454,26 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
     while idx < file.lines.len() && row_offset < diff_h {
         let draw_y = inner.y + 1 + row_offset;
         let line = &file.lines[idx];
-        app.click.diff_rows.push((draw_y, idx));
-        draw_diff_row(
+        let consumed = draw_diff_row(
             f,
-            Rect { x: inner.x, y: draw_y, width: inner.width, height: 1 },
+            Rect {
+                x: inner.x,
+                y: draw_y,
+                width: inner.width,
+                height: diff_h - row_offset,
+            },
             app,
             line,
             idx,
             idx == app.line_idx,
         );
+        for wrapped_row in 0..consumed {
+            app.click.diff_rows.push((draw_y + wrapped_row, idx));
+        }
         if idx == app.line_idx {
             selected_visible = true;
         }
-        row_offset += 1;
+        row_offset += consumed;
         if let Some(body) = app.comment_body_for_line(line) {
             if row_offset < diff_h {
                 let bubble_y = inner.y + 1 + row_offset;
@@ -412,37 +505,76 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
             app,
         );
     }
+
+    if !app.wrap_code && max_line_width > app.diff_code_width as usize {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .thumb_symbol("━")
+            .track_symbol(Some("─"))
+            .thumb_style(Style::default().fg(Color::Gray))
+            .track_style(Style::default().fg(BORDER))
+            .begin_symbol(Some("‹"))
+            .end_symbol(Some("›"));
+        let mut scrollbar_state = ScrollbarState::new(max_line_width)
+            .position(app.diff_horizontal_scroll)
+            .viewport_content_length(app.diff_code_width as usize);
+        let scrollbar_area = Rect {
+            x: inner.x + DIFF_GUTTER_WIDTH,
+            y: area.y + area.height.saturating_sub(1),
+            width: app.diff_code_width,
+            height: 1,
+        };
+        f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        app.click.horizontal_scrollbar_bounds = Some((
+            scrollbar_area.x.saturating_add(1),
+            scrollbar_area.y,
+            scrollbar_area.width.saturating_sub(2),
+        ));
+    }
 }
 
 pub fn file_tree_row_count(app: &App) -> usize {
     build_file_tree_rows(app).len()
 }
 
-fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usize, selected: bool) {
+fn wrapped_line_height(line: &DiffLine, code_width: u16) -> usize {
+    let width = code_width.max(1) as usize;
+    line.text.chars().count().max(1).div_ceil(width)
+}
+
+fn draw_diff_row(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    line: &DiffLine,
+    idx: usize,
+    selected: bool,
+) -> u16 {
     let (fg, bg, marker) = style_for(line);
     let marker_style = comment_marker_style(app.comment_marker_for_line(line));
     let old_n = line.old_lineno.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
     let new_n = line.new_lineno.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
     let in_range = app.line_in_selected_range(idx);
-    let row_bg = if selected {
-        SEL_BG
-    } else if in_range {
+    let row_bg = if in_range {
         RANGE_BG
+    } else if let Some(change_bg) = bg {
+        change_bg
+    } else if selected {
+        SEL_BG
     } else {
-        bg.unwrap_or(PANEL)
+        CODE_BG
     };
     let range_edge = if in_range { '█' } else { ' ' };
     let edge_style = if in_range {
         Style::default().fg(RANGE_EDGE).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED).bg(row_bg)
+        Style::default().fg(CODE_MUTED).bg(row_bg)
     };
     let number_style = if selected {
         Style::default().fg(TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
     } else if in_range {
         Style::default().fg(RANGE_FG).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED).bg(row_bg)
+        Style::default().fg(CODE_MUTED).bg(row_bg)
     };
     let text_style = if selected {
         Style::default().fg(fg).bg(row_bg).add_modifier(Modifier::BOLD)
@@ -452,18 +584,58 @@ fn draw_diff_row(f: &mut Frame, area: Rect, app: &App, line: &DiffLine, idx: usi
         Style::default().fg(fg).bg(row_bg)
     };
 
+    let visible_text: String = line
+        .text
+        .chars()
+        .skip(if app.wrap_code {
+            0
+        } else {
+            app.diff_horizontal_scroll
+        })
+        .collect();
+    let code_width = app.diff_code_width.max(1) as usize;
+    let mut code_rows: Vec<String> = if app.wrap_code {
+        visible_text
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(code_width)
+            .map(|chunk| chunk.iter().collect())
+            .collect()
+    } else {
+        vec![visible_text]
+    };
+    if code_rows.is_empty() {
+        code_rows.push(String::new());
+    }
+
+    let rows = code_rows.len().min(area.height as usize).max(1);
     let tree_glyph = app.comment_tree_glyph_for_line(line).unwrap_or(' ');
-    let spans = vec![
-        Span::styled(format!("{range_edge}"), edge_style),
-        Span::styled(format!(" {old_n} {new_n} "), number_style),
-        Span::styled(
-            format!(" {tree_glyph} "),
-            marker_style.bg(row_bg),
-        ),
-        Span::styled(format!(" {marker} "), text_style),
-        Span::styled(line.text.clone(), text_style),
-    ];
-    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(row_bg)), area);
+    for (wrapped_idx, code) in code_rows.into_iter().take(rows).enumerate() {
+        let spans = if wrapped_idx == 0 {
+            vec![
+                Span::styled(format!("{range_edge}"), edge_style),
+                Span::styled(format!(" {old_n} {new_n} "), number_style),
+                Span::styled(format!(" {tree_glyph} "), marker_style.bg(row_bg)),
+                Span::styled(format!(" {marker} "), text_style),
+                Span::styled(code, text_style),
+            ]
+        } else {
+            vec![
+                Span::styled(" ".repeat(DIFF_GUTTER_WIDTH as usize), number_style),
+                Span::styled(code, text_style),
+            ]
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(row_bg)),
+            Rect {
+                x: area.x,
+                y: area.y + wrapped_idx as u16,
+                width: area.width,
+                height: 1,
+            },
+        );
+    }
+    rows as u16
 }
 
 fn draw_comment_row(
@@ -473,7 +645,7 @@ fn draw_comment_row(
     marker: Option<char>,
     selected_line: bool,
 ) {
-    let bg = if selected_line { SEL_BG } else { PANEL };
+    let bg = if selected_line { SEL_BG } else { CODE_BG };
     let label = match marker {
         Some('P') => "published",
         Some('!') => "orphaned",
@@ -490,7 +662,7 @@ fn draw_comment_row(
         Span::styled("└─ ", style.add_modifier(Modifier::BOLD)),
         Span::styled("review ", style.add_modifier(Modifier::BOLD)),
         Span::styled(format!("[{label}] "), style),
-        Span::styled(preview, Style::default().fg(TEXT).bg(bg)),
+        Span::styled(preview, Style::default().fg(CODE_TEXT).bg(bg)),
     ]);
     f.render_widget(Paragraph::new(line).style(Style::default().bg(bg)), area);
 }
@@ -540,16 +712,16 @@ fn comment_marker_style(marker: Option<char>) -> Style {
 
 fn style_for(line: &DiffLine) -> (Color, Option<Color>, &'static str) {
     match line.kind {
-        LineKind::Add => (ADD_FG, None, "+"),
-        LineKind::Del => (DEL_FG, None, "-"),
-        LineKind::Context => (TEXT, None, " "),
-        LineKind::HunkHeader => (HUNK_FG, None, "@"),
+        LineKind::Add => (CODE_ADD_FG, Some(CODE_ADD_BG), " "),
+        LineKind::Del => (CODE_DEL_FG, Some(CODE_DEL_BG), " "),
+        LineKind::Context => (CODE_TEXT, None, " "),
+        LineKind::HunkHeader => (HUNK_FG, Some(HUNK_BG), "@"),
     }
 }
 
 fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
-        .borders(Borders::ALL)
+        .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG));
     let inner = block.inner(area);
@@ -581,6 +753,10 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::raw("    "),
             Span::styled("↑↓", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
             Span::styled(" move  ", Style::default().fg(MUTED)),
+            Span::styled("←→", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" pan  ", Style::default().fg(MUTED)),
+            Span::styled("a", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" view  ", Style::default().fg(MUTED)),
             Span::styled("Tab", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
             Span::styled(" file  ", Style::default().fg(MUTED)),
             Span::styled("Enter", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
@@ -790,7 +966,12 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     let lines = vec![
         heading("  READ"),
         row("↑ ↓", "move through the diff"),
+        row("← → / ⇧wheel", "pan code; disables wrapping"),
+        row("drag bottom", "move the horizontal scrollbar"),
+        row("w", "toggle code wrapping"),
+        row("a", "toggle full file / changes"),
         row("Tab / ⇧Tab", "next / previous file"),
+        row("drag ↔", "resize the files panel"),
         row("g / G", "top / bottom"),
         Line::from(""),
         heading("  REVIEW"),
