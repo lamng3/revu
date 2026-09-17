@@ -1,40 +1,71 @@
-# 🦞 revu 
+# 🦞 revu
 
-**Review your own code before you ship it.**
+Read your code changes before you ship them.
 
-Walk the diff. Mark what matters. Ship the reviews. From terminal.
+`revu` is a small terminal diff reader for reviewing a branch, drafting inline
+comments, and publishing them to a GitHub pull request.
 
-```
-~∿~≈~∿≈<(°º°)>~∿~≈~∿≈~∿≈
-» Snappy: small PRs, big wins.
-```
-<img width="1887" height="917" alt="image" src="https://github.com/user-attachments/assets/fbc20fd5-9707-4f2d-9ea1-e44663f59aba" />
+## Install
 
-## What it does
-
-- 📂 Loads your branch's diff against `origin/HEAD` (or any base)
-- ✎ Drop inline comments on any line — single or multi-line ranges
-- 💾 Drafts saved locally in `.revu/` and survive reloads
-- 🚀 `:p` publishes every draft to your PR as real review comments (via `gh`)
-- 🎙 `:v` dictates comments via local whisper.cpp — no cloud, no tokens
-- 🦞 Ships with **Snappy**, a lobster who lives in the corner and cheers you on
-
-## Meet Snappy
-
-Snappy is the whole point. He sits there while water flows past, snaps his claws, and drops affirmations like *"delete more than you add"* and *"snip snap, ship it!"*. Pet him with `:pet`. Customize his voice at `~/.revu/affirmations.txt`.
-
-## Quick start
-
-```sh
+```bash
 git clone https://github.com/lamng3/revu.git && cd revu
-cargo build --release
-cd /your/repo && revu
+cargo install --path .
 ```
 
-Press `?` for keys. `:q` to quit.
+Requires Rust and Git. Publishing comments or creating a pull request also
+requires the authenticated [`gh`](https://cli.github.com) CLI.
 
-**Needs:** `git`, [`gh`](https://cli.github.com) for publishing, [`whisper-cpp`](https://github.com/ggerganov/whisper.cpp) for voice.
+## Usage
+
+Run `revu` inside a repository:
+
+```bash
+revu
+```
+
+Or pass a repository and optional base branch:
+
+```bash
+revu /path/to/repository
+revu /path/to/repository main
+```
+
+The default view compares the current branch with `main`, `master`, or the
+remote default branch. Working-tree and untracked changes are included.
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move through the diff |
+| `Tab` / `Shift+Tab` | Next / previous file |
+| `Enter` | Add or edit a comment |
+| `Shift+↑` / `Shift+↓` | Extend a line selection |
+| `Delete` | Remove a draft |
+| `f` / `m` | Browse files / comments |
+| `Shift+R` | Reload changes |
+| `?` | Show the quick reference |
+| `q` | Quit |
+
+Comments are saved locally in `.revu/`.
+
+## Commands
+
+Type `:` to enter a command.
+
+| Command | Action |
+| --- | --- |
+| `:p` | Publish draft comments |
+| `:pr [title]` | Create a pull request |
+| `:v` | Start or stop voice recording |
+| `:pet` | Pet Snappy |
+| `:q` | Quit |
+
+Voice transcription uses local
+[`whisper.cpp`](https://github.com/ggerganov/whisper.cpp). Native recording is
+currently available on macOS and Windows; Linux builds keep voice recording
+disabled to avoid a system ALSA dependency.
 
 ## License
 
-MIT. Built with [ratatui](https://github.com/ratatui-org/ratatui), [cpal](https://github.com/RustAudio/cpal), [whisper.cpp](https://github.com/ggerganov/whisper.cpp), and one cold-blooded lobster.
+MIT.

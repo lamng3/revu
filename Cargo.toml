@@ -12,6 +12,8 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 rand = "0.8"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 cpal = "0.15"
 hound = "3.5"
 

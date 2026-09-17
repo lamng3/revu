@@ -157,6 +157,13 @@ impl App {
     }
 
     pub fn reload_diff(&mut self) {
+        // Refresh origin refs so that a just-merged PR registers as "no
+        // diff" instead of still showing the pre-merge file list. Runs in
+        // the foreground but with a short timeout-ish scope; best-effort.
+        let _ = std::process::Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["fetch", "--quiet", "--prune", "origin"])
+            .output();
         let current_path = self.current_file().map(|f| f.path.clone());
         match git::load_diff(&self.repo_root, self.base_ref.clone()) {
             Ok(ctx) => {
@@ -537,10 +544,43 @@ impl App {
 
             if let Some((x, y, w, h)) = self.click.diff_panel_bounds {
                 if col >= x && col < x + w && row >= y && row < y + h {
-                    for (r, line_idx) in &self.click.diff_rows {
+                    // While a multi-line range is active (V or active drag),
+                    // clicks just move the cursor — never auto-open the
+                    // editor. Press `c` to comment the selected range.
+                    let range_active = self.review_range_anchor.is_some();
+
+                    // Click on a rendered comment bubble → open that
+                    // comment's editor (only when no range is active).
+                    if !range_active {
+                        let comment_rows = self.click.comment_rows.clone();
+                        for (top, bottom, idx) in &comment_rows {
+                            if row >= *top && row < *bottom {
+                                self.line_idx = *idx;
+                                self.ensure_visible();
+                                self.begin_comment();
+                                return;
+                            }
+                        }
+                    }
+
+                    // Plain diff row: select it. Without an active range,
+                    // also open the editor if the clicked line already has
+                    // a comment, so users can click-to-edit directly.
+                    let diff_rows = self.click.diff_rows.clone();
+                    for (r, line_idx) in &diff_rows {
                         if *r == row {
                             self.line_idx = *line_idx;
                             self.ensure_visible();
+                            if !range_active {
+                                let has_comment = self
+                                    .current_file()
+                                    .and_then(|f| f.lines.get(*line_idx).cloned())
+                                    .map(|l| self.line_has_comment(&l))
+                                    .unwrap_or(false);
+                                if has_comment {
+                                    self.begin_comment();
+                                }
+                            }
                             return;
                         }
                     }
@@ -781,6 +821,35 @@ impl App {
         self.comment_marker_for_line(line).is_some()
     }
 
+    /// Gutter glyph for a tree-style multi-line comment span. Returns `●`
+    /// for single-line comments, `┌`/`│`/`└` for the start/middle/end of a
+    /// multi-line range. Caller colors it with `comment_marker_for_line`
+    /// so state (draft/published/orphaned) is still conveyed.
+    pub fn comment_tree_glyph_for_line(&self, line: &crate::diff::DiffLine) -> Option<char> {
+        let file = self.current_file()?;
+        let covering = self
+            .store
+            .comments
+            .iter()
+            .find(|c| c.file == file.path && Self::comment_covers_line(c, line))?;
+        let start = covering.start_line.unwrap_or(covering.line);
+        let end = covering.line;
+        if start == end {
+            return Some('●');
+        }
+        let current = match covering.side {
+            Side::Right => line.new_lineno?,
+            Side::Left => line.old_lineno?,
+        };
+        if current == start {
+            Some('┌')
+        } else if current == end {
+            Some('└')
+        } else {
+            Some('│')
+        }
+    }
+
     pub fn comment_marker_for_line(&self, line: &crate::diff::DiffLine) -> Option<char> {
         let Some(file) = self.current_file() else {
             return None;
@@ -875,10 +944,32 @@ impl App {
     }
 
     pub fn line_in_selected_range(&self, idx: usize) -> bool {
-        let Some((start, end)) = self.selected_diff_range() else {
+        // Only true when a multi-line range is actively anchored (V pressed
+        // or mouse drag active). Without an anchor the "range" would just be
+        // the current line and we don't want to highlight anything extra.
+        let Some(anchor) = self.review_range_anchor else {
             return false;
         };
+        let (start, end) = (anchor.min(self.line_idx), anchor.max(self.line_idx));
         idx >= start && idx <= end
+    }
+
+    pub fn multiline_active(&self) -> bool {
+        self.review_range_anchor.is_some()
+    }
+
+    /// Returns the displayed line-number range (start, end) on the current
+    /// side for the active multi-line selection, if any.
+    pub fn multiline_range(&self) -> Option<(u32, u32)> {
+        let anchor = self.review_range_anchor?;
+        let file = self.current_file()?;
+        let (a, b) = (anchor.min(self.line_idx), anchor.max(self.line_idx));
+        let line_no = |l: &crate::diff::DiffLine| -> Option<u32> {
+            l.new_lineno.or(l.old_lineno)
+        };
+        let start = line_no(file.lines.get(a)?)?;
+        let end = line_no(file.lines.get(b)?)?;
+        Some((start.min(end), start.max(end)))
     }
 
     pub fn toggle_review_range(&mut self) {
@@ -889,6 +980,14 @@ impl App {
             self.review_range_anchor = Some(self.line_idx);
             self.status = "review range started".into();
         }
+    }
+
+    pub fn extend_review_range(&mut self, delta: i32) {
+        if self.review_range_anchor.is_none() {
+            self.review_range_anchor = Some(self.line_idx);
+        }
+        self.move_line(delta);
+        self.status = "review range extended  ·  Enter to comment".into();
     }
 
     fn selected_diff_range(&self) -> Option<(usize, usize)> {
@@ -1006,7 +1105,11 @@ impl App {
     pub fn execute_command(&mut self, cmd_raw: &str) -> Result<bool> {
         let cmd = cmd_raw.trim();
         let cmd = cmd.strip_prefix(':').unwrap_or(cmd);
-        match cmd {
+        let (verb, arg) = match cmd.split_once(char::is_whitespace) {
+            Some((v, a)) => (v, a.trim()),
+            None => (cmd, ""),
+        };
+        match verb {
             "" => Ok(false),
             "q" | "quit" | "exit" => Ok(true),
             "h" | "help" => {
@@ -1043,7 +1146,8 @@ impl App {
                 Ok(false)
             }
             "pr" | "pcreate" => {
-                self.create_pr();
+                let title_override = if arg.is_empty() { None } else { Some(arg.to_string()) };
+                self.create_pr(title_override);
                 Ok(false)
             }
             "range" => {
@@ -1060,6 +1164,7 @@ impl App {
             }
             other => {
                 self.status = format!("unknown command: :{other}  ·  try :help");
+                let _ = arg;
                 Ok(false)
             }
         }
@@ -1224,13 +1329,13 @@ impl App {
         }
     }
 
-    fn create_pr(&mut self) {
+    fn create_pr(&mut self, title_override: Option<String>) {
         if !publish::gh_available() {
             self.status = "`gh` CLI not found — install from https://cli.github.com".into();
             return;
         }
         self.status = "creating PR...".into();
-        match publish::create_pr(&self.repo_root) {
+        match publish::create_pr(&self.repo_root, title_override.as_deref()) {
             Ok(n) => {
                 self.status = format!("created PR #{n}");
             }
