@@ -112,12 +112,34 @@ fn run<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                             _ => {}
                         }
                     }
+                    MouseEventKind::Moved
+                        if app.dragging_horizontal_scrollbar || app.resizing_file_panel =>
+                    {
+                        app.on_drag_update(m.column, m.row);
+                        dirty = true;
+                    }
                     MouseEventKind::ScrollDown => {
-                        app.on_scroll(m.column, m.row, 1, ui::file_tree_row_count(app));
+                        if m.modifiers.contains(KeyModifiers::SHIFT) {
+                            app.on_horizontal_scroll(m.column, m.row, 4);
+                        } else {
+                            app.on_scroll(m.column, m.row, 1, ui::file_tree_row_count(app));
+                        }
                         dirty = true;
                     }
                     MouseEventKind::ScrollUp => {
-                        app.on_scroll(m.column, m.row, -1, ui::file_tree_row_count(app));
+                        if m.modifiers.contains(KeyModifiers::SHIFT) {
+                            app.on_horizontal_scroll(m.column, m.row, -4);
+                        } else {
+                            app.on_scroll(m.column, m.row, -1, ui::file_tree_row_count(app));
+                        }
+                        dirty = true;
+                    }
+                    MouseEventKind::ScrollLeft => {
+                        app.on_horizontal_scroll(m.column, m.row, -4);
+                        dirty = true;
+                    }
+                    MouseEventKind::ScrollRight => {
+                        app.on_horizontal_scroll(m.column, m.row, 4);
                         dirty = true;
                     }
                     _ => {}
@@ -308,6 +330,8 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         (KeyCode::Char('r'), m) if m.contains(KeyModifiers::SHIFT) => app.reload_diff(),
         (KeyCode::Char('f'), KeyModifiers::NONE) => app.toggle_files_overlay(),
         (KeyCode::Char('m'), KeyModifiers::NONE) => app.toggle_comments_overlay(),
+        (KeyCode::Char('w'), KeyModifiers::NONE) => app.toggle_code_wrap(),
+        (KeyCode::Char('a'), KeyModifiers::NONE) => app.toggle_full_file_view(),
         (KeyCode::Char('p'), KeyModifiers::CONTROL) => app.toggle_files_overlay(),
         (KeyCode::Up, m) if m.contains(KeyModifiers::SHIFT) => app.extend_review_range(-1),
         (KeyCode::Down, m) if m.contains(KeyModifiers::SHIFT) => app.extend_review_range(1),
@@ -318,6 +342,8 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         (KeyCode::Char('H'), _) => app.move_file(-1),
         (KeyCode::Char('L'), _) => app.move_file(1),
         (KeyCode::Char('J'), _) => app.jump_latest_diff(),
+        (KeyCode::Left, _) => app.scroll_diff_horizontal(-4),
+        (KeyCode::Right, _) => app.scroll_diff_horizontal(4),
         (KeyCode::Up, _) | (KeyCode::Char('k'), _) => app.move_line(-1),
         (KeyCode::Down, _) | (KeyCode::Char('j'), _) => app.move_line(1),
         (KeyCode::Char('n'), KeyModifiers::NONE) => app.next_hunk(),
