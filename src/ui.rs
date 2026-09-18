@@ -21,19 +21,21 @@ const TEXT: Color = Color::White;
 const MUTED: Color = Color::Gray;
 const ADD_FG: Color = Color::LightGreen;
 const DEL_FG: Color = Color::LightRed;
-const CODE_BG: Color = Color::Black;
-const CODE_TEXT: Color = Color::White;
-const CODE_MUTED: Color = Color::Gray;
+const CODE_BG: Color = Color::Indexed(231);
+const CODE_TEXT: Color = Color::Black;
+const CODE_MUTED: Color = Color::DarkGray;
 const CODE_ADD_FG: Color = Color::Black;
 const CODE_ADD_BG: Color = Color::Indexed(194);
 const CODE_DEL_FG: Color = Color::Black;
 const CODE_DEL_BG: Color = Color::Indexed(224);
-const HUNK_FG: Color = Color::LightCyan;
-const HUNK_BG: Color = Color::Black;
+const CODE_COMMENT: Color = Color::Blue;
+const HUNK_FG: Color = Color::Blue;
+const HUNK_BG: Color = Color::Indexed(195);
 const SEL_BG: Color = Color::DarkGray;
-const RANGE_BG: Color = Color::Indexed(18);
-const RANGE_EDGE: Color = Color::LightYellow;
-const RANGE_FG: Color = Color::LightCyan;
+const CODE_SEL_BG: Color = Color::Indexed(252);
+const RANGE_BG: Color = Color::Indexed(195);
+const RANGE_EDGE: Color = Color::Blue;
+const RANGE_FG: Color = Color::Blue;
 const COMMENT_DRAFT: Color = Color::Yellow;
 const COMMENT_PUBLISHED: Color = Color::Green;
 const COMMENT_ORPHAN: Color = Color::Yellow;
@@ -340,11 +342,11 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::TOP | Borders::RIGHT | Borders::BOTTOM)
         .border_type(BorderType::Rounded)
-        .style(Style::default().bg(CODE_BG))
+        .style(Style::default().bg(PANEL))
         .border_style(Style::default().fg(BORDER))
         .title(Span::styled(
             " review ",
-            Style::default().fg(CODE_TEXT).bg(CODE_BG).add_modifier(Modifier::BOLD),
+            Style::default().fg(TEXT).bg(PANEL).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -354,9 +356,9 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "no diff to show",
-                Style::default().fg(CODE_MUTED),
+                Style::default().fg(MUTED),
             )))
-            .style(Style::default().bg(CODE_BG)),
+            .style(Style::default().bg(PANEL)),
             inner,
         );
         return;
@@ -436,6 +438,7 @@ fn draw_diff(f: &mut Frame, area: Rect, app: &mut App) {
         Paragraph::new(header).style(Style::default().bg(CODE_BG)),
         Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
     );
+    draw_right_border_cell(f, inner.x + inner.width, inner.y, CODE_BG);
 
     if app.wrap_code && app.line_idx >= app.scroll {
         let rows_to_selection: usize = file.lines[app.scroll..=app.line_idx]
@@ -559,7 +562,7 @@ fn draw_diff_row(
     } else if let Some(change_bg) = bg {
         change_bg
     } else if selected {
-        SEL_BG
+        CODE_SEL_BG
     } else {
         CODE_BG
     };
@@ -570,7 +573,7 @@ fn draw_diff_row(
         Style::default().fg(CODE_MUTED).bg(row_bg)
     };
     let number_style = if selected {
-        Style::default().fg(TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
+        Style::default().fg(CODE_TEXT).bg(row_bg).add_modifier(Modifier::BOLD)
     } else if in_range {
         Style::default().fg(RANGE_FG).bg(row_bg).add_modifier(Modifier::BOLD)
     } else {
@@ -634,6 +637,12 @@ fn draw_diff_row(
                 height: 1,
             },
         );
+        draw_right_border_cell(
+            f,
+            area.x + area.width,
+            area.y + wrapped_idx as u16,
+            row_bg,
+        );
     }
     rows as u16
 }
@@ -645,16 +654,16 @@ fn draw_comment_row(
     marker: Option<char>,
     selected_line: bool,
 ) {
-    let bg = if selected_line { SEL_BG } else { CODE_BG };
+    let bg = if selected_line { CODE_SEL_BG } else { CODE_BG };
     let label = match marker {
         Some('P') => "published",
         Some('!') => "orphaned",
         _ => "draft",
     };
     let style = match marker {
-        Some('P') => Style::default().fg(COMMENT_PUBLISHED).bg(bg),
-        Some('!') => Style::default().fg(COMMENT_ORPHAN).bg(bg),
-        _ => Style::default().fg(COMMENT_DRAFT).bg(bg),
+        Some('P') => Style::default().fg(Color::Green).bg(bg),
+        Some('!') => Style::default().fg(Color::Red).bg(bg),
+        _ => Style::default().fg(CODE_COMMENT).bg(bg),
     };
     let preview: String = body.chars().take(area.width.saturating_sub(24) as usize).collect();
     let line = Line::from(vec![
@@ -665,6 +674,19 @@ fn draw_comment_row(
         Span::styled(preview, Style::default().fg(CODE_TEXT).bg(bg)),
     ]);
     f.render_widget(Paragraph::new(line).style(Style::default().bg(bg)), area);
+    draw_right_border_cell(f, area.x + area.width, area.y, bg);
+}
+
+fn draw_right_border_cell(f: &mut Frame, x: u16, y: u16, bg: Color) {
+    f.render_widget(
+        Paragraph::new(Span::styled("│", Style::default().fg(BORDER).bg(bg))),
+        Rect {
+            x,
+            y,
+            width: 1,
+            height: 1,
+        },
+    );
 }
 
 fn draw_inline_comment_editor(f: &mut Frame, area: Rect, app: &App) {
@@ -675,38 +697,38 @@ fn draw_inline_comment_editor(f: &mut Frame, area: Rect, app: &App) {
     let preview = draft.replace('\n', " \\ ");
     let block = Block::default()
         .borders(Borders::TOP)
-        .border_style(Style::default().fg(BORDER))
-        .style(Style::default().bg(PANEL));
+        .border_style(Style::default().fg(CODE_MUTED))
+        .style(Style::default().bg(CODE_BG));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("comment ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
-            Span::styled("enter save", Style::default().fg(MUTED)),
+            Span::styled("comment ", Style::default().fg(CODE_COMMENT).add_modifier(Modifier::BOLD)),
+            Span::styled("enter save", Style::default().fg(CODE_MUTED)),
             Span::raw("  "),
-            Span::styled("esc cancel", Style::default().fg(MUTED)),
+            Span::styled("esc cancel", Style::default().fg(CODE_MUTED)),
             Span::raw("  "),
-            Span::styled("shift+enter newline", Style::default().fg(MUTED)),
+            Span::styled("shift+enter newline", Style::default().fg(CODE_MUTED)),
         ]),
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD)),
-            Span::styled(preview, Style::default().fg(TEXT)),
-            Span::styled("▎", Style::default().fg(COMMENT_DRAFT)),
+            Span::styled("> ", Style::default().fg(CODE_COMMENT).add_modifier(Modifier::BOLD)),
+            Span::styled(preview, Style::default().fg(CODE_TEXT)),
+            Span::styled("▎", Style::default().fg(CODE_COMMENT)),
         ]),
     ];
     f.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: true }).style(Style::default().bg(PANEL)),
+        Paragraph::new(lines).wrap(Wrap { trim: true }).style(Style::default().bg(CODE_BG)),
         inner,
     );
 }
 
 fn comment_marker_style(marker: Option<char>) -> Style {
     match marker {
-        Some('D') => Style::default().fg(COMMENT_DRAFT).add_modifier(Modifier::BOLD),
-        Some('P') => Style::default().fg(COMMENT_PUBLISHED).add_modifier(Modifier::BOLD),
-        Some('!') => Style::default().fg(COMMENT_ORPHAN).add_modifier(Modifier::BOLD),
-        _ => Style::default().fg(MUTED),
+        Some('D') => Style::default().fg(CODE_COMMENT).add_modifier(Modifier::BOLD),
+        Some('P') => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        Some('!') => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(CODE_MUTED),
     }
 }
 
@@ -985,6 +1007,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         row("? / q", "help / quit"),
         row(":p", "publish draft comments"),
         row(":pr [title]", "create a pull request"),
+        row(":fetch", "fetch origin and reload"),
         row(":v", "dictate a comment"),
     ];
     let _ = muted_style;

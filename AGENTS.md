@@ -3,11 +3,12 @@
 ## Product direction
 
 - Keep `revu` lightweight, fast to launch, and easy to ship as one terminal binary.
+- Never perform network I/O during startup or ordinary local navigation/reload.
 - Optimize for reading a diff like a book: code is the focus and chrome stays quiet.
 - Prefer familiar, discoverable controls: arrows, Enter, Delete, Tab, and shifted actions.
 - Power-user aliases may remain compatible, but do not crowd the UI or manual with them.
-- Use ANSI colors for terminal compatibility: black context rows with white
-  code, plus very pale indexed green and red backgrounds for changed rows.
+- Use indexed colors for terminal compatibility: bright-white code rows with
+  black text and pale green/red changes. Keep unused review space black; avoid RGB.
 - Use GitHub pull-request diffs as the interaction reference without copying its web UI.
 - Mouse support should complement complete keyboard navigation.
 
