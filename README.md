@@ -56,7 +56,7 @@ review gutters stay fixed while code moves. The bottom scrollbar can also be
 clicked or dragged.
 
 Modified rows use light-green and light-red backgrounds instead of `+` and `-`
-markers.
+markers. Unchanged code is rendered on bright-white rows; unused space stays dark.
 
 Comments are saved locally in `.revu/`.
 
@@ -70,6 +70,7 @@ Type `:` to enter a command.
 | `:pr [title]` | Create a pull request |
 | `:v` | Start or stop voice recording |
 | `:all` | Toggle full file / modified sections |
+| `:fetch` | Fetch origin and reload |
 | `:pet` | Pet Snappy |
 | `:q` | Quit |
 

@@ -177,14 +177,24 @@ impl App {
     }
 
     pub fn reload_diff(&mut self) {
-        // Refresh origin refs so that a just-merged PR registers as "no
-        // diff" instead of still showing the pre-merge file list. Runs in
-        // the foreground but with a short timeout-ish scope; best-effort.
-        let _ = std::process::Command::new("git")
+        self.load_diff_from_repo();
+    }
+
+    pub fn fetch_and_reload(&mut self) {
+        match std::process::Command::new("git")
             .current_dir(&self.repo_root)
             .args(["fetch", "--quiet", "--prune", "origin"])
-            .output();
-        self.load_diff_from_repo();
+            .output()
+        {
+            Ok(output) if output.status.success() => self.load_diff_from_repo(),
+            Ok(output) => {
+                self.status = format!(
+                    "fetch failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            Err(error) => self.status = format!("fetch failed: {error}"),
+        }
     }
 
     fn load_diff_from_repo(&mut self) {
@@ -1293,6 +1303,10 @@ impl App {
             }
             "r" | "reload" => {
                 self.reload_diff();
+                Ok(false)
+            }
+            "fetch" => {
+                self.fetch_and_reload();
                 Ok(false)
             }
             "view" | "all" => {
