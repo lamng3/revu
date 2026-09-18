@@ -5,6 +5,8 @@ Read your code changes before you ship them.
 `revu` is a small terminal diff reader for reviewing a branch, drafting inline
 comments, and publishing them to a GitHub pull request.
 
+<img width="1712" height="1028" alt="image" src="https://github.com/user-attachments/assets/78d28dea-b862-4cf1-bd80-93a4d38307eb" />
+
 ## Install
 
 ```bash
